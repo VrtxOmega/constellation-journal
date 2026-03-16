@@ -1,0 +1,52 @@
+{
+  "name": "constellation-journal",
+  "version": "1.0.0",
+  "description": "Local-only journaling app — 365 stars, emotional mapping, automatic constellations",
+  "main": "main-app.js",
+  "scripts": {
+    "dev": "node launcher.js",
+    "start": "node launcher.js",
+    "rebuild": "npx @electron/rebuild",
+    "postinstall": "electron-builder install-app-deps",
+    "build": "electron-builder --win"
+  },
+  "keywords": [
+    "journal",
+    "electron",
+    "stars",
+    "constellation",
+    "local"
+  ],
+  "author": "VERITAS Omega",
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^26.8.1"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "three": "^0.160.0"
+  },
+  "build": {
+    "appId": "com.veritas.constellation-journal",
+    "productName": "Constellation Journal",
+    "copyright": "Copyright © 2026 VERITAS Omega",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "renderer/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "npmRebuild": false,
+    "buildDependenciesFromSource": true
+  }
+}

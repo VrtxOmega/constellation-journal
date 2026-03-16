@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Constellation Journal</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Local-only: System font stack. No external requests. */
+    :root {
+      --font-sans: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      --font-mono: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+    }
+  </style>
+</head>
+<body>
+  <!-- Loading Splash -->
+  <div id="loading-splash" style="position:fixed;inset:0;z-index:9999;background:#030308;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 1s ease;">
+    <div style="font-size:48px;animation:pulse 2s ease-in-out infinite;">✦</div>
+    <div style="color:#d4af37;font-family:var(--font-sans);font-size:16px;letter-spacing:4px;margin-top:16px;text-transform:uppercase;">Constellation Journal</div>
+    <div id="loading-status" style="color:rgba(180,180,210,0.5);font-family:var(--font-sans);font-size:11px;margin-top:12px;">Mapping the sky...</div>
+    <style>@keyframes pulse{0%,100%{opacity:0.3;transform:scale(0.8)}50%{opacity:1;transform:scale(1.2);color:#d4af37}}</style>
+  </div>
+  <!-- Title Bar -->
+  <div id="title-bar">
+    <div id="title-bar-text">
+      <span class="title-icon">✦</span>
+      <span>Constellation Journal</span>
+    </div>
+    <div id="title-bar-controls">
+      <button id="btn-search" class="title-btn" title="Search Entries (Ctrl+F)">🔍</button>
+      <button id="btn-settings" class="title-btn" title="Settings">⚙</button>
+      <button id="btn-constellations-toggle" class="title-btn" title="Toggle Constellation Lines">✧</button>
+      <button id="btn-sound-toggle" class="title-btn" title="Toggle Sound">🔇</button>
+      <button id="btn-minimize" class="title-btn" title="Minimize">─</button>
+      <button id="btn-maximize" class="title-btn" title="Maximize">□</button>
+      <button id="btn-close" class="title-btn title-btn-close" title="Close">×</button>
+    </div>
+  </div>
+
+  <!-- Settings Panel -->
+  <div id="settings-panel" class="hidden">
+    <div id="settings-backdrop" class="panel-backdrop"></div>
+    <div id="settings-content" class="panel-glass">
+      <div class="panel-header">
+        <span class="panel-title">⚙ Settings</span>
+        <button id="settings-close-btn" class="panel-close">×</button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-section">
+          <div class="settings-label">Star Size</div>
+          <input type="range" id="setting-star-size" min="0.5" max="3" step="0.1" value="1.0">
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">Twinkle Speed</div>
+          <input type="range" id="setting-twinkle-speed" min="0.2" max="3" step="0.1" value="1.2">
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">Auto-rotate</div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="setting-auto-rotate" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <hr class="settings-divider">
+        <div class="settings-section">
+          <div class="settings-label">Data</div>
+          <div class="settings-buttons">
+            <button id="btn-export" class="settings-btn">📤 Export JSON</button>
+            <button id="btn-import" class="settings-btn">📥 Import JSON</button>
+          </div>
+        </div>
+        <hr class="settings-divider">
+        <div class="settings-section">
+          <div class="settings-label settings-label-danger">Danger Zone</div>
+          <button id="btn-clear-data" class="settings-btn settings-btn-danger">🗑 Clear All Data</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search Panel -->
+  <div id="search-panel" class="hidden">
+    <div id="search-backdrop" class="panel-backdrop"></div>
+    <div id="search-content" class="panel-glass search-glass">
+      <div class="panel-header">
+        <span class="panel-title">🔍 Search Entries</span>
+        <button id="search-close-btn" class="panel-close">×</button>
+      </div>
+      <input type="text" id="search-input" placeholder="Search your sky..." autocomplete="off">
+      <div id="search-results"></div>
+    </div>
+  </div>
+
+  <!-- Onboarding -->
+  <div id="onboarding" class="hidden">
+    <div class="onboarding-backdrop"></div>
+    <div class="onboarding-content">
+      <div class="onboarding-icon">✦</div>
+      <h2>Welcome to Constellation Journal</h2>
+      <p>Every day is a star. Every entry lights it up.<br>Over time, your sky fills with the glow of your personal universe.</p>
+      <ul class="onboarding-features">
+        <li>🌟 Write daily — each entry becomes a unique star</li>
+        <li>🖱️ Drag to orbit the sky, scroll to zoom</li>
+        <li>✨ Stars age and redshift over time</li>
+        <li>🔭 Real stars from the HYG catalog surround you</li>
+      </ul>
+      <button id="onboarding-start-btn">Begin ✦</button>
+    </div>
+  </div>
+
+  <!-- Three.js Canvas Container -->
+  <div id="canvas-container"></div>
+
+  <!-- Star Info Tooltip -->
+  <div id="star-tooltip" class="hidden">
+    <div class="tooltip-name"></div>
+    <div class="tooltip-date"></div>
+    <div class="tooltip-emotion"></div>
+  </div>
+
+  <!-- Entry Overlay -->
+  <div id="entry-overlay" class="hidden">
+    <div id="entry-overlay-backdrop"></div>
+    <div id="entry-overlay-content">
+      <div id="entry-overlay-header">
+        <div id="entry-star-indicator"></div>
+        <div id="entry-star-name"></div>
+        <div id="entry-date"></div>
+        <div id="entry-emotion-label"></div>
+      </div>
+      <div id="entry-text"></div>
+      <button id="entry-close-btn">✦ Close</button>
+    </div>
+  </div>
+
+  <!-- Write Panel -->
+  <div id="write-panel" class="hidden">
+    <div id="write-panel-backdrop"></div>
+    <div id="write-panel-content">
+      <div id="write-panel-header">
+        <span class="write-title">✦ Write</span>
+        <span id="write-date"></span>
+        <span id="write-word-count">0 words</span>
+      </div>
+      <textarea id="write-textarea" placeholder="What's on your mind tonight..." spellcheck="true"></textarea>
+      <div id="write-panel-footer">
+        <label id="typewriter-toggle">
+          <input type="checkbox" id="typewriter-checkbox"> Typewriter sounds
+        </label>
+        <div class="write-actions">
+          <button id="write-cancel-btn">Cancel</button>
+          <button id="write-save-btn">Save to the sky ✦</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Longest Night Banner -->
+  <div id="longest-night-banner" class="hidden">
+    <div class="ln-text">✦ The Longest Night ✦</div>
+    <div class="ln-subtitle">Your whole year illuminated</div>
+  </div>
+
+  <!-- Write Button -->
+  <button id="write-trigger-btn">✦ Write</button>
+
+  <!-- Constellation Legend (shows detected constellations) -->
+  <div id="constellation-legend" class="hidden">
+    <div class="legend-title">Constellations</div>
+    <div id="legend-items"></div>
+  </div>
+
+  <!-- Calendar Ring Label -->
+  <div id="calendar-info">
+    <span id="current-date-label"></span>
+    <span id="entry-count-label"></span>
+  </div>
+
+  <!-- Scripts -->
+  <script src="../node_modules/three/build/three.min.js"></script>
+  <script src="star-catalog.js"></script>
+  <script src="messier-catalog.js"></script>
+  <script src="constellation-lines.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
