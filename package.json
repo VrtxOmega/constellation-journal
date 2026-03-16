@@ -17,9 +17,12 @@
     "constellation",
     "local"
   ],
-  "author": "VERITAS Omega",
-  "license": "UNLICENSED",
-  "private": true,
+  "author": "RJ Lopez",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RJLopezAI/constellation-journal"
+  },
   "devDependencies": {
     "electron": "^34.0.0",
     "electron-builder": "^26.8.1"

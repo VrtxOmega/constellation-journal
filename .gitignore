@@ -3,3 +3,23 @@ dist/
 *.webm
 *.log
 .env
+
+# Database files (user data — never commit)
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS artifacts
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Build artifacts
+*.asar

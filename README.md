@@ -1,6 +1,7 @@
 # Constellation Journal
 
-Every journal entry becomes a star in a real astronomical sky.
+> **Your year, written in stars.**
+> Local only. Nothing leaves your machine. Everything leaves a mark.
 
 * **Emotional Topography:** Your entries are analyzed for emotional tone (valence/arousal) and visually mapped to stellar temperature using real Planck blackbody curves. Joy burns blue-white (30,000K); crisis smolders red (3,000K).
 * **Semantic Filaments:** Connected thoughts physically wire together. A local offline Ollama model (`nomic-embed-text`) detects high-dimensional semantic similarities and draws glowing energy filaments between related entries.
