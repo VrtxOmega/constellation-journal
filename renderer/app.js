@@ -2131,6 +2131,24 @@ function animate() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// PHASE 14: HELPERS
+// ═══════════════════════════════════════════════════════════
+function formatDate(dayOfYear, year) {
+  const d = new Date(year, 0, dayOfYear);
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function updateNebulaClearMask() {
+  if (!nebulaFogUniforms || !nebulaFogUniforms.uClearMask) return;
+  const tex = nebulaFogUniforms.uClearMask.value;
+  const data = tex.image.data;
+  for (let i = 0; i < STAR_COUNT; i++) {
+    data[i * 4] = starData[i] ? 255 : 0;
+  }
+  tex.needsUpdate = true;
+}
+
+// ═══════════════════════════════════════════════════════════
 // PHASE 14: THE PROPHECY (FUTURE STAR MESSAGES)
 // Shielded State: All writes go through IPC prepared statements
 // ═══════════════════════════════════════════════════════════
