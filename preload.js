@@ -29,5 +29,6 @@ contextBridge.exposeInMainWorld('journal', {
 
   // Screen Recorder
   getDesktopSourceId: () => ipcRenderer.invoke('getDesktopSourceId'),
-  saveRecording: (buffer) => ipcRenderer.invoke('saveRecording', buffer)
+  saveRecording: (buffer) => ipcRenderer.invoke('saveRecording', buffer),
+  resetForDemo: () => ipcRenderer.invoke('resetForDemo')
 });

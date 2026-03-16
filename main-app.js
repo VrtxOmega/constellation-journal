@@ -119,9 +119,8 @@ function registerIPC() {
 
   // Screen Recorder (Phase 13)
   ipcMain.handle('getDesktopSourceId', async () => {
-    const sources = await desktopCapturer.getSources({ types: ['window'] });
-    const winSource = sources.find(s => s.name === 'Constellation Journal') || sources[0];
-    return winSource ? winSource.id : null;
+    const sources = await desktopCapturer.getSources({ types: ['screen'] });
+    return sources.length > 0 ? sources[0].id : null;
   });
 
   ipcMain.handle('saveRecording', async (_event, arrayBuffer) => {
@@ -129,6 +128,13 @@ function registerIPC() {
     const outPath = path.join(oneDriveDesktop, 'constellation-demo.webm');
     fs.writeFileSync(outPath, Buffer.from(arrayBuffer));
     return outPath;
+  });
+
+  // Demo reset — wipe all entries + constellations for clean recording
+  ipcMain.handle('resetForDemo', async () => {
+    store.db.exec('DELETE FROM entries;');
+    store.db.exec('DELETE FROM constellations;');
+    return { success: true };
   });
 }
 

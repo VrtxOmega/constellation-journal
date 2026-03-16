@@ -2073,10 +2073,20 @@ async function startRecording() {
     
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false, 
-      video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId } }
+      video: {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: sourceId,
+          maxWidth: 3840,
+          maxHeight: 2160
+        }
+      }
     });
 
-    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' });
+    mediaRecorder = new MediaRecorder(stream, {
+      mimeType: 'video/webm; codecs=vp9',
+      videoBitsPerSecond: 8000000  // 8 Mbps for crisp quality
+    });
     recordedChunks = [];
 
     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
@@ -2127,28 +2137,38 @@ function typeSimulated(text, durationMs, callback) {
   }, durationMs / text.length);
 }
 
-function runDemoSequence() {
-  window._autoRotate = false; // Disable auto rotate for deterministic framing
+async function runDemoSequence() {
+  // Step 0: Wipe database and reload to get empty sky
+  await window.journal.resetForDemo();
+  entries = [];
+  constellations = [];
+  // Refresh star visuals to empty state
+  await loadData();
+  updateCalendarInfo();
+
+  window._autoRotate = false;
   startRecording();
 
   // 1. First Entry (Balanced/Insightful)
-  setTimeout(() => openWritePanel(100), 2000);
+  setTimeout(() => openWritePanel(getDayOfYear()), 2000);
   setTimeout(() => typeSimulated("The project finally compiled. A small victory, but it feels like lifting a mountain. The architecture holds together.", 3000, saveEntry), 3500);
 
   // 2. Second Entry (Crisis/High Arousal, Low Valence)
-  setTimeout(() => openWritePanel(120), 10000);
+  setTimeout(() => openWritePanel(getDayOfYear() + 1), 10000);
   setTimeout(() => typeSimulated("Everything is breaking at once. The entire caching layer collapsed under load and I am losing my mind trying to trace the desync.", 3500, saveEntry), 11500);
 
   // 3. Third Entry (Calm/High Valence)
-  setTimeout(() => openWritePanel(140), 19000);
+  setTimeout(() => openWritePanel(getDayOfYear() + 2), 19000);
   setTimeout(() => typeSimulated("Deep clarity this morning. Walking in the cold air, everything suddenly made sense. The solution was simple all along.", 3500, saveEntry), 20500);
 
   // 4. Fly to and read the first entry
   setTimeout(() => {
-     if (starPositions[99]) flyToStar(starPositions[99]);
+     const idx = getDayOfYear() - 1;
+     if (starPositions[idx]) flyToStar(starPositions[idx]);
   }, 27000);
   setTimeout(() => {
-     if (starData[99]) openEntryOverlay(starData[99]);
+     const idx = getDayOfYear() - 1;
+     if (starData[idx]) openEntryOverlay(starData[idx]);
   }, 29000);
   setTimeout(() => closeEntryOverlay(), 36000);
 
@@ -2157,7 +2177,7 @@ function runDemoSequence() {
      targetSpherical = { theta: spherical.theta + 1.2, phi: Math.max(0.2, spherical.phi - 0.4), radius: 100 };
      flyToStart = { theta: spherical.theta, phi: spherical.phi, radius: spherical.radius };
      flyToProgress = 0;
-     flyToDuration = 15; // Slow 15-second cinematic pan
+     flyToDuration = 15;
   }, 38000);
 
   // 6. Cut
