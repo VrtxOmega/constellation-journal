@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,13 +14,34 @@
     }
   </style>
 </head>
+
 <body>
   <!-- Loading Splash -->
-  <div id="loading-splash" style="position:fixed;inset:0;z-index:9999;background:#030308;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 1s ease;">
+  <div id="loading-splash"
+    style="position:fixed;inset:0;z-index:9999;background:#030308;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 1s ease;">
     <div style="font-size:48px;animation:pulse 2s ease-in-out infinite;">✦</div>
-    <div style="color:#d4af37;font-family:var(--font-sans);font-size:16px;letter-spacing:4px;margin-top:16px;text-transform:uppercase;">Constellation Journal</div>
-    <div id="loading-status" style="color:rgba(180,180,210,0.5);font-family:var(--font-sans);font-size:11px;margin-top:12px;">Mapping the sky...</div>
-    <style>@keyframes pulse{0%,100%{opacity:0.3;transform:scale(0.8)}50%{opacity:1;transform:scale(1.2);color:#d4af37}}</style>
+    <div
+      style="color:#d4af37;font-family:var(--font-sans);font-size:16px;letter-spacing:4px;margin-top:16px;text-transform:uppercase;">
+      Constellation Journal</div>
+    <div id="loading-status"
+      style="color:rgba(180,180,210,0.5);font-family:var(--font-sans);font-size:11px;margin-top:12px;">Mapping the
+      sky...</div>
+    <style>
+      @keyframes pulse {
+
+        0%,
+        100% {
+          opacity: 0.3;
+          transform: scale(0.8)
+        }
+
+        50% {
+          opacity: 1;
+          transform: scale(1.2);
+          color: #d4af37
+        }
+      }
+    </style>
   </div>
   <!-- Title Bar -->
   <div id="title-bar">
@@ -98,7 +120,8 @@
     <div class="onboarding-content">
       <div class="onboarding-icon">✦</div>
       <h2>Welcome to Constellation Journal</h2>
-      <p>Every day is a star. Every entry lights it up.<br>Over time, your sky fills with the glow of your personal universe.</p>
+      <p>Every day is a star. Every entry lights it up.<br>Over time, your sky fills with the glow of your personal
+        universe.</p>
       <ul class="onboarding-features">
         <li>🌟 Write daily — each entry becomes a unique star</li>
         <li>🖱️ Drag to orbit the sky, scroll to zoom</li>
@@ -165,6 +188,33 @@
   <!-- Write Button -->
   <button id="write-trigger-btn">✦ Write</button>
 
+  <!-- Prophecy Panel (Phase 14) — centered -->
+  <div id="prophecy-panel" class="hidden">
+    <div id="prophecy-content" class="panel-glass" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:380px;z-index:1000;">
+      <div class="panel-header">
+        <span class="panel-title" style="color:#d4af37">✦ Prophecy</span>
+        <span id="prophecy-date" style="color:rgba(180,180,210,0.7);font-size:13px;"></span>
+        <button id="prophecy-close-btn" class="panel-close">×</button>
+      </div>
+      <div id="prophecy-sealed" class="hidden" style="text-align:center;padding:24px;">
+        <div style="font-size:36px;margin-bottom:12px;">🔮</div>
+        <div style="color:#d4af37;font-size:16px;font-weight:600;">Sealed until this day arrives</div>
+        <div id="prophecy-sealed-date" style="color:rgba(180,180,210,0.5);font-size:13px;margin-top:8px;"></div>
+      </div>
+      <div id="prophecy-write" class="hidden">
+        <textarea id="prophecy-textarea" placeholder="Write a message to your future self..." spellcheck="true" style="width:100%;min-height:120px;background:rgba(212,175,55,0.05);border:1px solid rgba(212,175,55,0.2);border-radius:8px;color:#e0e0f0;font-size:15px;padding:16px;resize:vertical;outline:none;font-family:var(--font-sans);"></textarea>
+        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:12px;">
+          <button id="prophecy-cancel-btn" style="padding:8px 20px;border:1px solid rgba(180,180,210,0.2);background:transparent;color:rgba(180,180,210,0.7);border-radius:8px;cursor:pointer;">Cancel</button>
+          <button id="prophecy-save-btn" style="padding:8px 20px;border:1px solid rgba(212,175,55,0.4);background:rgba(212,175,55,0.15);color:#d4af37;border-radius:8px;cursor:pointer;font-weight:600;">Seal Prophecy ✦</button>
+        </div>
+      </div>
+      <div id="prophecy-revealed" class="hidden" style="padding:16px;">
+        <div style="color:#d4af37;font-size:13px;margin-bottom:8px;">✦ Prophecy Revealed</div>
+        <div id="prophecy-revealed-text" style="color:#e0e0f0;font-size:15px;line-height:1.6;"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Constellation Legend (shows detected constellations) -->
   <div id="constellation-legend" class="hidden">
     <div class="legend-title">Constellations</div>
@@ -175,6 +225,7 @@
   <div id="calendar-info">
     <span id="current-date-label"></span>
     <span id="entry-count-label"></span>
+    <span id="sky-cleared-label" style="margin-left:8px;color:rgba(180,180,210,0.5);font-size:12px;"></span>
   </div>
 
   <!-- Scripts -->
@@ -184,4 +235,5 @@
   <script src="constellation-lines.js"></script>
   <script src="app.js"></script>
 </body>
+
 </html>

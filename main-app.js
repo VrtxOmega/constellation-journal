@@ -114,6 +114,25 @@ function registerIPC() {
     }
   });
   ipcMain.on('window:close', () => mainWindow?.close());
+
+  // ── Phase 14: Prophecies (Shielded State) ──
+  ipcMain.handle('prophecy:save', (_event, { dayOfYear, year, text }) => {
+    return store.saveProphecy(dayOfYear, year, text);
+  });
+  ipcMain.handle('prophecy:get', (_event, { dayOfYear, year }) => {
+    return store.getProphecy(dayOfYear, year);
+  });
+  ipcMain.handle('prophecy:getAll', (_event, { year }) => {
+    return store.getAllProphecies(year);
+  });
+  ipcMain.handle('prophecy:reveal', (_event, { dayOfYear, year }) => {
+    return store.revealProphecy(dayOfYear, year);
+  });
+
+  // ── Phase 14: Search (Shielded State) ──
+  ipcMain.handle('entry:search', (_event, { year, query }) => {
+    return store.searchEntries(year, query);
+  });
 }
 
 // ─── App Lifecycle ─────────────────────────────────────────────
@@ -121,6 +140,20 @@ app.whenReady().then(() => {
   store = new Store();
   registerIPC();
   createWindow();
+
+  // ── Phase 14: Midnight Prophecy Reveal Timer ──
+  // Check every 60 seconds if any prophecies should be revealed
+  setInterval(() => {
+    if (!store || !mainWindow) return;
+    const now = new Date();
+    const year = now.getFullYear();
+    const doy = Math.floor((now - new Date(year, 0, 0)) / 86400000);
+    const due = store.getUnrevealedDue(year, doy);
+    for (const p of due) {
+      store.revealProphecy(p.day_of_year, p.year);
+      mainWindow.webContents.send('prophecy:revealed', p);
+    }
+  }, 60000);
 });
 
 app.on('window-all-closed', () => {

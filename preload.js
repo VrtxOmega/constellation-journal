@@ -25,5 +25,19 @@ contextBridge.exposeInMainWorld('journal', {
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
-  close: () => ipcRenderer.send('window:close')
+  close: () => ipcRenderer.send('window:close'),
+
+  // Phase 14: Prophecies (Shielded State)
+  saveProphecy: (dayOfYear, year, text) =>
+    ipcRenderer.invoke('prophecy:save', { dayOfYear, year, text }),
+  getProphecy: (dayOfYear, year) =>
+    ipcRenderer.invoke('prophecy:get', { dayOfYear, year }),
+  getAllProphecies: (year) =>
+    ipcRenderer.invoke('prophecy:getAll', { year }),
+  onProphecyRevealed: (callback) =>
+    ipcRenderer.on('prophecy:revealed', (_event, prophecy) => callback(prophecy)),
+
+  // Phase 14: Search (Shielded State)
+  searchEntries: (year, query) =>
+    ipcRenderer.invoke('entry:search', { year, query })
 });

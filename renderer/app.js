@@ -168,6 +168,12 @@ async function init() {
   // Load data
   await loadData();
 
+  // Phase 14: Create nebula fog (after data is loaded so clear mask is accurate)
+  createNebulaFog();
+
+  // Phase 14: Listen for midnight prophecy reveals from main process
+  window.journal.onProphecyRevealed(onProphecyRevealed);
+
   // Events
   setupEvents();
 
@@ -231,7 +237,7 @@ function bvToColor(bv) {
 function createBackgroundStars() {
   const catalog = typeof STAR_CATALOG_CLEAN !== 'undefined' ? STAR_CATALOG_CLEAN : (typeof STAR_CATALOG !== 'undefined' ? STAR_CATALOG : []);
   const count = catalog.length;
-  const fillerCount = 2000;
+  const fillerCount = 4000;
   const totalCount = count + fillerCount;
 
   const positions = new Float32Array(totalCount * 3);
@@ -249,24 +255,24 @@ function createBackgroundStars() {
     colors[i * 3 + 1] = col.g;
     colors[i * 3 + 2] = col.b;
 
-    // Magnitude-based sizing: Sirius (-1.46) → 6px, Vega (0.03) → 4px, mag 4 → 0.8px
-    const magNorm = (star.mag + 1.5) / 5.5; // 0 = brightest, 1 = faintest
-    sizes[i] = Math.max(0.8, 6.0 * Math.pow(1 - Math.min(1, magNorm), 1.5));
+    // Magnitude-based sizing: brighter = larger. Sirius → 8px, Vega → 5px, mag 4 → 1.0px
+    const magNorm = (star.mag + 1.5) / 5.5;
+    sizes[i] = Math.max(1.0, 8.0 * Math.pow(1 - Math.min(1, magNorm), 1.5));
   }
 
   for (let i = 0; i < fillerCount; i++) {
     const idx = count + i;
     const phi = Math.acos(2 * Math.random() - 1);
     const theta = Math.random() * Math.PI * 2;
-    const r = 100 + Math.random() * 60;
+    const r = 95 + Math.random() * 65;
     positions[idx * 3] = r * Math.sin(phi) * Math.cos(theta);
     positions[idx * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
     positions[idx * 3 + 2] = r * Math.cos(phi);
-    const v = 0.55 + Math.random() * 0.3;
+    const v = 0.6 + Math.random() * 0.35;
     colors[idx * 3] = v;
     colors[idx * 3 + 1] = v;
-    colors[idx * 3 + 2] = v + 0.05;
-    sizes[idx] = 0.3 + Math.random() * 0.4;
+    colors[idx * 3 + 2] = v + Math.random() * 0.08;
+    sizes[idx] = 0.4 + Math.random() * 0.6;
   }
 
   const geo = new THREE.BufferGeometry();
@@ -284,35 +290,45 @@ function createBackgroundStars() {
       attribute float starSize;
       varying vec3 vColor;
       varying float vTwinkle;
+      varying float vSize;
       uniform float uPixelRatio;
       uniform float uTime;
-      // Pseudo-random hash for per-star scintillation phase
       float hash(vec3 p) {
         return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
       }
       void main() {
         vColor = color;
-        // Each star twinkles at its own rate and phase
+        vSize = starSize;
+        // Each star twinkles with more pronounced variation
         float phase = hash(position) * 6.2832;
-        float rate = 0.2 + hash(position.zxy) * 0.5;
-        vTwinkle = 0.75 + 0.25 * sin(uTime * rate + phase);
+        float rate = 0.3 + hash(position.zxy) * 0.8;
+        float rate2 = 0.1 + hash(position.yzx) * 0.3;
+        vTwinkle = 0.55 + 0.45 * sin(uTime * rate + phase) * (0.8 + 0.2 * sin(uTime * rate2 + phase * 1.7));
         vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mvPos;
         gl_PointSize = starSize * uPixelRatio * (400.0 / -mvPos.z) * vTwinkle;
-        // MUST clamp to 1.5 minimum. If < 1.0, it renders a 1x1 square and gl_PointCoord fails.
         gl_PointSize = max(gl_PointSize, 1.5);
       }
     `,
     fragmentShader: `
       varying vec3 vColor;
       varying float vTwinkle;
+      varying float vSize;
       void main() {
         float dist = length(gl_PointCoord - vec2(0.5));
-        // Soft radial glow: bright center, smooth falloff
-        float core = smoothstep(0.5, 0.0, dist);
-        float glow = smoothstep(0.5, 0.15, dist) * 0.5;
-        float alpha = (core * 0.95 + glow) * vTwinkle;
-        gl_FragColor = vec4(vColor * (core + 0.4), alpha);
+        // Bright core with wider glow halo
+        float core = smoothstep(0.45, 0.0, dist);
+        float glow = smoothstep(0.5, 0.1, dist) * 0.6;
+        // Diffraction spikes for brighter stars
+        float spike = 0.0;
+        if (vSize > 3.0) {
+          vec2 pc = gl_PointCoord - vec2(0.5);
+          float h = max(0.0, 1.0 - abs(pc.x) * 12.0) * max(0.0, 1.0 - abs(pc.y) * 3.0);
+          float v = max(0.0, 1.0 - abs(pc.y) * 12.0) * max(0.0, 1.0 - abs(pc.x) * 3.0);
+          spike = (h + v) * 0.35 * min(1.0, (vSize - 3.0) / 3.0);
+        }
+        float alpha = (core * 0.95 + glow + spike) * vTwinkle;
+        gl_FragColor = vec4(vColor * (core + 0.5) + vec3(spike * 0.3), alpha);
       }
     `,
     transparent: true,
@@ -500,9 +516,10 @@ function createNebula() {
   const nebulaGeo = new THREE.SphereGeometry(120, 64, 64);
   nebulaUniforms = {
     uTime: { value: 0 },
-    uColor1: { value: new THREE.Color(0x2a0844) }, // rich purple
-    uColor2: { value: new THREE.Color(0x0c3a3a) }, // deep teal
-    uColor3: { value: new THREE.Color(0x3a2510) }, // warm amber
+    uColor1: { value: new THREE.Color(0x3a0a5e) }, // vivid purple
+    uColor2: { value: new THREE.Color(0x0a4a4a) }, // deep teal
+    uColor3: { value: new THREE.Color(0x5a1a30) }, // warm rose
+    uColor4: { value: new THREE.Color(0x1a2a5a) }, // deep blue
   };
 
   const nebulaMat = new THREE.ShaderMaterial({
@@ -521,10 +538,10 @@ function createNebula() {
       uniform vec3 uColor1;
       uniform vec3 uColor2;
       uniform vec3 uColor3;
+      uniform vec3 uColor4;
       varying vec2 vUv;
       varying vec3 vPosition;
 
-      // Simplex-like noise (hash-based)
       float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
       }
@@ -543,7 +560,7 @@ function createNebula() {
       float fbm(vec2 p) {
         float v = 0.0;
         float a = 0.5;
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 5; i++) {
           v += a * noise(p);
           p *= 2.0;
           a *= 0.5;
@@ -552,16 +569,20 @@ function createNebula() {
       }
 
       void main() {
-        vec2 uv = vUv + uTime * 0.002;
-        float n1 = fbm(uv * 3.0);
-        float n2 = fbm(uv * 3.0 + vec2(5.2, 1.3));
+        vec2 uv = vUv + uTime * 0.0015;
+        // Domain warping for organic swirls
+        float warp = fbm(uv * 3.0 + vec2(fbm(uv * 2.0 + uTime * 0.001), fbm(uv * 2.5 - uTime * 0.001)));
+        float n1 = fbm(uv * 3.0 + warp * 0.4);
+        float n2 = fbm(uv * 3.0 + vec2(5.2, 1.3) + warp * 0.3);
         float n3 = fbm(uv * 3.0 + vec2(9.7, 4.1));
+        float n4 = fbm(uv * 4.0 + vec2(2.3, 7.8));
 
         vec3 color = mix(uColor1, uColor2, n1);
-        color = mix(color, uColor3, n2 * 0.5);
+        color = mix(color, uColor3, n2 * 0.6);
+        color = mix(color, uColor4, n4 * 0.3);
 
-        float alpha = n3 * 0.18;
-        gl_FragColor = vec4(color, alpha);
+        float alpha = (n3 * 0.22 + warp * 0.08) * smoothstep(0.0, 0.3, n1);
+        gl_FragColor = vec4(color * 1.3, alpha);
       }
     `,
     transparent: true,
@@ -578,58 +599,70 @@ function createNebula() {
 // MILKY WAY BAND
 // ═══════════════════════════════════════════════════════════
 function createMilkyWay() {
-  const count = 2000;
+  const count = 6000;
   const positions = new Float32Array(count * 3);
   const sizes = new Float32Array(count);
   const opacities = new Float32Array(count);
+  const colors = new Float32Array(count * 3);
 
   for (let i = 0; i < count; i++) {
-    // Distribute along a tilted great circle (galactic plane ~60° tilt)
+    // Distribute along a tilted great circle
     const t = (i / count) * Math.PI * 2;
-    const spread = (Math.random() - 0.5) * 15; // spread around the band
-    const spreadY = (Math.random() - 0.5) * 8;
+    const spread = (Math.random() - 0.5) * 20;
+    const spreadY = (Math.random() - 0.5) * 12;
 
-    const radius = 95 + Math.random() * 10;
+    const radius = 93 + Math.random() * 12;
     const x = Math.cos(t) * radius + spread;
-    const y = Math.sin(t) * radius * 0.3 + spreadY; // flatten
+    const y = Math.sin(t) * radius * 0.3 + spreadY;
     const z = Math.sin(t) * radius * 0.8 + spread * 0.5;
 
-    // Rotate the band 60 degrees
     const angle = Math.PI / 3;
     positions[i * 3] = x;
     positions[i * 3 + 1] = y * Math.cos(angle) - z * Math.sin(angle);
     positions[i * 3 + 2] = y * Math.sin(angle) + z * Math.cos(angle);
 
-    sizes[i] = 0.3 + Math.random() * 0.7;
-    opacities[i] = 0.03 + Math.random() * 0.08;
+    sizes[i] = 0.4 + Math.random() * 1.0;
+    opacities[i] = 0.04 + Math.random() * 0.12;
+
+    // Color variation: blue-white core with purple/amber edges
+    const core = Math.abs(spread) < 6 ? 1.0 : 0.0;
+    const r = 0.55 + Math.random() * 0.25 + core * 0.2;
+    const g = 0.50 + Math.random() * 0.20 + core * 0.25;
+    const b = 0.65 + Math.random() * 0.30 + core * 0.15;
+    colors[i * 3] = r;
+    colors[i * 3 + 1] = g;
+    colors[i * 3 + 2] = b;
   }
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
   const cv = document.createElement('canvas');
-  cv.width = 16; cv.height = 16;
+  cv.width = 32; cv.height = 32;
   const ctx = cv.getContext('2d');
-  ctx.beginPath();
-  ctx.arc(8, 8, 8, 0, Math.PI * 2);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
+  const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.3, 'rgba(255,255,255,0.4)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 32, 32);
   const circleTex = new THREE.CanvasTexture(cv);
 
   const mat = new THREE.PointsMaterial({
-    color: 0x9999bb,
-    size: 0.6,
+    size: 0.9,
     transparent: true,
-    opacity: 0.12,
+    opacity: 0.18,
     sizeAttenuation: true,
     depthWrite: false,
     map: circleTex,
+    vertexColors: true,
+    blending: THREE.AdditiveBlending,
   });
 
   const milkyWay = new THREE.Points(geo, mat);
   milkyWay.renderOrder = -1;
-  // Phase 12/Sprint C: Align to the real galactic plane (tilt ~63 deg, longitude offset ~123 deg)
   milkyWay.rotation.set(-62.87 * Math.PI / 180, 0, 122.93 * Math.PI / 180);
   scene.add(milkyWay);
 }
@@ -644,7 +677,8 @@ function createStars() {
   const positions = new Float32Array(STAR_COUNT * 3);
   const colors = new Float32Array(STAR_COUNT * 3);
   const sizes = new Float32Array(STAR_COUNT);
-  const phases = new Float32Array(STAR_COUNT); // for twinkling
+  const phases = new Float32Array(STAR_COUNT);
+  const isPulsar = new Float32Array(STAR_COUNT); // Phase 14: Prophecy pulsar flag
 
   for (let i = 0; i < STAR_COUNT; i++) {
     positions[i * 3] = starPositions[i].x;
@@ -657,6 +691,7 @@ function createStars() {
 
     sizes[i] = EMPTY_STAR_SIZE;
     phases[i] = Math.random() * Math.PI * 2;
+    isPulsar[i] = 0.0;
   }
 
   const geometry = new THREE.BufferGeometry();
@@ -664,20 +699,24 @@ function createStars() {
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
   geometry.setAttribute('phase', new THREE.BufferAttribute(phases, 1));
+  geometry.setAttribute('isPulsar', new THREE.BufferAttribute(isPulsar, 1));
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
       uPixelRatio: { value: renderer.getPixelRatio() },
       uHoveredIndex: { value: -1 },
+      uSearchDim: { value: 0 },
     },
     vertexShader: `
       attribute float size;
       attribute float phase;
+      attribute float isPulsar;
       attribute vec3 color;
       uniform float uTime;
       uniform float uPixelRatio;
       uniform float uHoveredIndex;
+      uniform float uSearchDim;
       varying vec3 vColor;
       varying float vAlpha;
 
@@ -687,8 +726,16 @@ function createStars() {
         // Twinkling — more pronounced for empty stars
         float twinkle = 0.7 + 0.3 * sin(uTime * 1.2 + phase * 6.28);
 
-        // Hover pulse
+        // Pulsar animation (Phase 14) — rapid sharp pulsing for prophecy stars
         float pulseSize = size;
+        if (isPulsar > 0.5) {
+          float pulsarBeat = 0.5 + 0.5 * pow(abs(sin(uTime * 6.0 + phase)), 4.0);
+          pulseSize = size * (0.6 + pulsarBeat * 1.4);
+          twinkle = pulsarBeat;
+          vColor = mix(color, vec3(0.83, 0.69, 0.22), 0.5); // Amber tint
+        }
+
+        // Hover pulse
         float idx = float(gl_VertexID);
         if (abs(idx - uHoveredIndex) < 0.5) {
           float pulse = 1.0 + 0.4 * sin(uTime * 4.0);
@@ -696,8 +743,14 @@ function createStars() {
           twinkle = 1.0;
         }
 
+        // Search dim (Phase 14): dim non-matching stars
+        float searchMult = 1.0;
+        if (uSearchDim > 0.5 && size < 4.1 && isPulsar < 0.5) {
+          searchMult = 0.15;
+        }
+
         // Empty stars (size <= 4.0) get a softer but visible alpha
-        vAlpha = twinkle * (size > 4.0 ? 1.0 : 0.55);
+        vAlpha = twinkle * (size > 4.0 || isPulsar > 0.5 ? 1.0 : 0.55) * searchMult;
 
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
         gl_PointSize = pulseSize * uPixelRatio * (200.0 / -mvPosition.z);
@@ -711,12 +764,20 @@ function createStars() {
       void main() {
         float dist = length(gl_PointCoord - vec2(0.5));
 
-        // Soft glow falloff
-        float glow = 1.0 - smoothstep(0.0, 0.5, dist);
-        float core = 1.0 - smoothstep(0.0, 0.15, dist);
+        // Bright core + wider glow halo + subtle outer bloom
+        float core = 1.0 - smoothstep(0.0, 0.12, dist);
+        float glow = 1.0 - smoothstep(0.0, 0.45, dist);
+        float bloom = 1.0 - smoothstep(0.2, 0.5, dist);
 
-        vec3 color = vColor * glow + vec3(1.0) * core * 0.3;
-        float alpha = vAlpha * glow;
+        // Diffraction cross for written stars (larger point size)
+        vec2 pc = gl_PointCoord - vec2(0.5);
+        float cross = max(0.0, 1.0 - abs(pc.x) * 10.0) * max(0.0, 1.0 - abs(pc.y) * 4.0)
+                    + max(0.0, 1.0 - abs(pc.y) * 10.0) * max(0.0, 1.0 - abs(pc.x) * 4.0);
+        cross *= 0.2;
+
+        vec3 color = vColor * (glow * 0.8 + core * 0.6) + vec3(1.0) * core * 0.4;
+        color += vColor * cross * 0.5;
+        float alpha = vAlpha * (glow * 0.7 + core * 0.3 + bloom * 0.15 + cross * 0.1);
 
         gl_FragColor = vec4(color, alpha);
       }
@@ -776,31 +837,32 @@ function createCalendarRing() {
 function addCorona(starIndex, colorHex) {
   const position = starPositions[starIndex];
 
-  // Create soft circular glow texture for corona
+  // Create soft circular glow texture for corona — larger, brighter
   const cv = document.createElement('canvas');
-  cv.width = 64; cv.height = 64;
+  cv.width = 128; cv.height = 128;
   const ctx = cv.getContext('2d');
-  const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, 'rgba(255,255,255,0.8)');
-  grad.addColorStop(0.2, 'rgba(255,255,255,0.3)');
-  grad.addColorStop(0.5, 'rgba(255,255,255,0.08)');
+  const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+  grad.addColorStop(0.15, 'rgba(255,255,255,0.5)');
+  grad.addColorStop(0.4, 'rgba(255,255,255,0.12)');
+  grad.addColorStop(0.7, 'rgba(255,255,255,0.03)');
   grad.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 64, 64);
+  ctx.fillRect(0, 0, 128, 128);
   const coronaTex = new THREE.CanvasTexture(cv);
 
   const spriteMat = new THREE.SpriteMaterial({
     map: coronaTex,
     color: new THREE.Color(colorHex),
     transparent: true,
-    opacity: 0.5,
+    opacity: 0.7,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
 
   const sprite = new THREE.Sprite(spriteMat);
   sprite.position.copy(position);
-  sprite.scale.set(6, 6, 1);
+  sprite.scale.set(10, 10, 1);
   sprite.userData = { createdAt: Date.now(), starIndex };
   scene.add(sprite);
   coronaSprites.push(sprite);
@@ -816,8 +878,10 @@ function updateCoronas() {
       coronaSprites.splice(i, 1);
     } else {
       const fade = 1 - (elapsed / CORONA_DURATION_MS);
-      sprite.material.opacity = 0.4 * fade;
-      sprite.scale.setScalar(6 + (1 - fade) * 2);
+      sprite.material.opacity = 0.6 * fade;
+      // Breathe effect: gentle pulse + expand
+      const breathe = 1.0 + 0.15 * Math.sin(elapsed * 0.003);
+      sprite.scale.setScalar((10 + (1 - fade) * 4) * breathe);
     }
   }
 }
@@ -1275,6 +1339,10 @@ async function loadData() {
 
   // Update entry count
   updateCalendarInfo();
+
+  // Phase 14: Load prophecies and update nebula
+  await loadProphecies();
+  updateNebulaClearMask();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1511,6 +1579,8 @@ function onMouseClick(event) {
   if (intersects.length > 0) {
     const idx = intersects[0].index;
     const entry = starData[idx];
+    const dayOfYear = idx + 1;
+    const todayDOY = getDayOfYear();
 
     // Smooth fly-to the star
     if (starPositions[idx]) {
@@ -1518,10 +1588,14 @@ function onMouseClick(event) {
     }
 
     if (entry) {
-      // Delay overlay open until fly-to is partially complete
+      // Existing entry — show overlay
       setTimeout(() => openEntryOverlay(entry), 600);
+    } else if (dayOfYear > todayDOY) {
+      // Future star — Prophecy flow (Phase 14)
+      setTimeout(() => openProphecyPanel(dayOfYear, currentYear), 600);
     } else {
-      setTimeout(() => openWritePanel(idx + 1), 600);
+      // Past/today unwritten — write entry
+      setTimeout(() => openWritePanel(dayOfYear), 600);
     }
   }
 }
@@ -1667,6 +1741,9 @@ async function saveEntry() {
 
   closeWritePanel();
   updateCalendarInfo();
+
+  // Phase 14: Update nebula clear mask
+  updateNebulaClearMask();
 }
 
 function updateWordCount() {
@@ -1826,7 +1903,23 @@ function setupEvents() {
       e.preventDefault();
       openSearch();
     }
+    // Home key: reset camera to default orientation
+    if (e.key === 'h' && !isWritePanelOpen && !isOverlayOpen && !isSearchOpen && !isProphecyPanelOpen) {
+      spherical = { theta: 0, phi: Math.PI / 2, radius: 85 };
+      targetSpherical = null;
+      updateCameraFromSpherical();
+    }
+    // Escape closes prophecy/search
+    if (e.key === 'Escape') {
+      if (isProphecyPanelOpen) closeProphecyPanel();
+      if (isSearchOpen) closeSearch();
+    }
   });
+
+  // ── Phase 14: Prophecy Panel ──
+  document.getElementById('prophecy-close-btn').addEventListener('click', closeProphecyPanel);
+  document.getElementById('prophecy-cancel-btn').addEventListener('click', closeProphecyPanel);
+  document.getElementById('prophecy-save-btn').addEventListener('click', saveProphecy);
 
   // ── Onboarding ──
   if (!localStorage.getItem('constellation-journal-onboarded')) {
@@ -1928,12 +2021,14 @@ function openSearch() {
 function closeSearch() {
   isSearchOpen = false;
   document.getElementById('search-panel').classList.add('hidden');
+  clearSearchHighlights();
 }
 
 function liveSearch() {
   const query = document.getElementById('search-input').value.toLowerCase().trim();
   if (!query) {
     renderSearchResults(entries);
+    clearSearchHighlights();
     return;
   }
   const filtered = entries.filter(e =>
@@ -1942,6 +2037,7 @@ function liveSearch() {
     (e.emotion_label && e.emotion_label.toLowerCase().includes(query))
   );
   renderSearchResults(filtered);
+  highlightSearchResults(filtered);
 }
 
 function renderSearchResults(results) {
@@ -2024,12 +2120,448 @@ function animate() {
     0.016 + ambientBrightness * 0.15
   );
 
-  // Update coronas + light echo + gravity wells
+  // Update coronas + light echo + gravity wells + nebula + prophecy burst
   updateCoronas();
   updateLightEcho();
   updateGravityWells(elapsed);
+  updateNebulaFog(elapsed);
+  updateProphecyBurst();
 
   renderer.render(scene, camera);
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 14: THE PROPHECY (FUTURE STAR MESSAGES)
+// Shielded State: All writes go through IPC prepared statements
+// ═══════════════════════════════════════════════════════════
+let prophecies = [];
+let isProphecyPanelOpen = false;
+
+async function loadProphecies() {
+  prophecies = await window.journal.getAllProphecies(currentYear);
+  updatePulsarStars();
+}
+
+function updatePulsarStars() {
+  if (!starPoints) return;
+  const pulsarArr = starPoints.geometry.attributes.isPulsar.array;
+  const colorsArr = starPoints.geometry.attributes.color.array;
+  const sizesArr = starPoints.geometry.attributes.size.array;
+
+  // Reset all pulsars first
+  for (let i = 0; i < STAR_COUNT; i++) pulsarArr[i] = 0.0;
+
+  const prophecyColor = new THREE.Color(0xd4af37);
+  for (const p of prophecies) {
+    if (p.revealed) continue;
+    const idx = p.day_of_year - 1;
+    if (idx < 0 || idx >= STAR_COUNT) continue;
+    pulsarArr[idx] = 1.0;
+    colorsArr[idx * 3] = prophecyColor.r;
+    colorsArr[idx * 3 + 1] = prophecyColor.g;
+    colorsArr[idx * 3 + 2] = prophecyColor.b;
+    sizesArr[idx] = WRITTEN_STAR_BASE_SIZE + 2;
+  }
+
+  starPoints.geometry.attributes.isPulsar.needsUpdate = true;
+  starPoints.geometry.attributes.color.needsUpdate = true;
+  starPoints.geometry.attributes.size.needsUpdate = true;
+}
+
+async function openProphecyPanel(dayOfYear, year) {
+  isProphecyPanelOpen = true;
+  const panel = document.getElementById('prophecy-panel');
+  panel.classList.remove('hidden');
+  document.getElementById('prophecy-date').textContent = formatDate(dayOfYear, year);
+
+  // Hide all sub-panels
+  document.getElementById('prophecy-sealed').classList.add('hidden');
+  document.getElementById('prophecy-write').classList.add('hidden');
+  document.getElementById('prophecy-revealed').classList.add('hidden');
+
+  const existing = await window.journal.getProphecy(dayOfYear, year);
+
+  if (existing && existing.revealed) {
+    // Revealed — show text
+    document.getElementById('prophecy-revealed').classList.remove('hidden');
+    document.getElementById('prophecy-revealed-text').textContent = existing.text;
+  } else if (existing) {
+    // Sealed — show countdown
+    document.getElementById('prophecy-sealed').classList.remove('hidden');
+    document.getElementById('prophecy-sealed-date').textContent = formatDate(dayOfYear, year);
+  } else {
+    // New prophecy — show write
+    document.getElementById('prophecy-write').classList.remove('hidden');
+    document.getElementById('prophecy-textarea').value = '';
+    document.getElementById('prophecy-textarea').focus();
+  }
+
+  // Store target
+  panel.dataset.dayOfYear = dayOfYear;
+  panel.dataset.year = year;
+}
+
+function closeProphecyPanel() {
+  isProphecyPanelOpen = false;
+  document.getElementById('prophecy-panel').classList.add('hidden');
+}
+
+async function saveProphecy() {
+  const panel = document.getElementById('prophecy-panel');
+  const text = document.getElementById('prophecy-textarea').value.trim();
+  if (!text) return;
+
+  const dayOfYear = parseInt(panel.dataset.dayOfYear);
+  const year = parseInt(panel.dataset.year);
+
+  await window.journal.saveProphecy(dayOfYear, year, text);
+  await loadProphecies();
+  closeProphecyPanel();
+
+  // Play a mystical chime
+  if (soundEnabled && audioCtx) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(660, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(330, audioCtx.currentTime + 1.5);
+    gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 2);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 2);
+  }
+}
+
+// Midnight burst — triggered by main process
+function onProphecyRevealed(prophecy) {
+  const idx = prophecy.day_of_year - 1;
+  if (idx < 0 || idx >= STAR_COUNT) return;
+
+  // Remove pulsar flag
+  const pulsarArr = starPoints.geometry.attributes.isPulsar.array;
+  pulsarArr[idx] = 0.0;
+  starPoints.geometry.attributes.isPulsar.needsUpdate = true;
+
+  // Create supernova burst
+  const pos = starPositions[idx];
+  const burstCount = 48;
+  const burstPositions = new Float32Array(burstCount * 3);
+  for (let i = 0; i < burstCount; i++) {
+    burstPositions[i * 3] = pos.x;
+    burstPositions[i * 3 + 1] = pos.y;
+    burstPositions[i * 3 + 2] = pos.z;
+  }
+
+  const burstGeo = new THREE.BufferGeometry();
+  burstGeo.setAttribute('position', new THREE.BufferAttribute(burstPositions, 3));
+  const burstMat = new THREE.PointsMaterial({
+    color: 0xd4af37,
+    size: 2,
+    transparent: true,
+    opacity: 1,
+    sizeAttenuation: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  const burstPoints = new THREE.Points(burstGeo, burstMat);
+  burstPoints.userData = { velocities: [], startTime: Date.now() };
+
+  for (let i = 0; i < burstCount; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.random() * Math.PI;
+    const speed = 0.5 + Math.random() * 1.5;
+    burstPoints.userData.velocities.push({
+      x: Math.sin(phi) * Math.cos(theta) * speed,
+      y: Math.sin(phi) * Math.sin(theta) * speed,
+      z: Math.cos(phi) * speed,
+    });
+  }
+
+  scene.add(burstPoints);
+  window._prophecyBurst = burstPoints;
+
+  // Auto-show the revealed text after 1 second
+  setTimeout(() => openProphecyPanel(prophecy.day_of_year, prophecy.year), 1000);
+
+  // Reload prophecies
+  loadProphecies();
+}
+
+function updateProphecyBurst() {
+  if (!window._prophecyBurst) return;
+  const bp = window._prophecyBurst;
+  const elapsed = (Date.now() - bp.userData.startTime) / 1000;
+
+  if (elapsed > 3) {
+    scene.remove(bp);
+    window._prophecyBurst = null;
+    return;
+  }
+
+  const posArr = bp.geometry.attributes.position.array;
+  for (let i = 0; i < bp.userData.velocities.length; i++) {
+    const v = bp.userData.velocities[i];
+    posArr[i * 3] += v.x * 0.016;
+    posArr[i * 3 + 1] += v.y * 0.016;
+    posArr[i * 3 + 2] += v.z * 0.016;
+  }
+  bp.geometry.attributes.position.needsUpdate = true;
+  bp.material.opacity = Math.max(0, 1 - elapsed / 3);
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 14: SEARCH HORIZON + SEARCH FILAMENTS
+// Camera tween to results + temporary golden connections
+// ═══════════════════════════════════════════════════════════
+let searchFilamentsGroup = null;
+let searchHighlightedIndices = new Set();
+
+function highlightSearchResults(filtered) {
+  if (!filtered.length) {
+    clearSearchHighlights();
+    return;
+  }
+
+  // Collect matching star indices
+  const matchIndices = filtered.map(e => e.day_of_year - 1).filter(i => i >= 0 && i < STAR_COUNT);
+  searchHighlightedIndices = new Set(matchIndices);
+
+  // Boost matching stars, dim others via shader uniform
+  starPoints.material.uniforms.uSearchDim.value = 1.0;
+  const sizesArr = starPoints.geometry.attributes.size.array;
+  for (const idx of matchIndices) {
+    sizesArr[idx] = Math.max(sizesArr[idx], WRITTEN_STAR_BASE_SIZE + 4);
+  }
+  starPoints.geometry.attributes.size.needsUpdate = true;
+
+  // Camera tween to centroid of results
+  if (matchIndices.length > 0) {
+    const centroid = new THREE.Vector3();
+    for (const idx of matchIndices) {
+      centroid.add(starPositions[idx]);
+    }
+    centroid.divideScalar(matchIndices.length);
+    flyToStar(centroid);
+  }
+
+  // Draw search filaments
+  drawSearchFilaments(matchIndices);
+}
+
+function clearSearchHighlights() {
+  searchHighlightedIndices = new Set();
+  starPoints.material.uniforms.uSearchDim.value = 0.0;
+
+  // Restore original sizes
+  const sizesArr = starPoints.geometry.attributes.size.array;
+  for (let i = 0; i < STAR_COUNT; i++) {
+    if (starData[i]) {
+      sizesArr[i] = WRITTEN_STAR_BASE_SIZE + Math.min((starData[i].text || '').length, 2000) / 500 * 3;
+    } else {
+      sizesArr[i] = EMPTY_STAR_SIZE;
+    }
+  }
+  // Restore pulsar sizes
+  for (const p of prophecies) {
+    if (p.revealed) continue;
+    const idx = p.day_of_year - 1;
+    if (idx >= 0 && idx < STAR_COUNT) sizesArr[idx] = WRITTEN_STAR_BASE_SIZE + 2;
+  }
+  starPoints.geometry.attributes.size.needsUpdate = true;
+
+  // Clear filaments
+  clearSearchFilaments();
+}
+
+function drawSearchFilaments(matchIndices) {
+  clearSearchFilaments();
+  if (matchIndices.length < 2) return;
+
+  const positions = [];
+  for (let i = 0; i < matchIndices.length; i++) {
+    for (let j = i + 1; j < matchIndices.length; j++) {
+      const p1 = starPositions[matchIndices[i]];
+      const p2 = starPositions[matchIndices[j]];
+      positions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+    }
+  }
+
+  if (positions.length > 0) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const mat = new THREE.LineBasicMaterial({
+      color: 0xd4af37,
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    searchFilamentsGroup = new THREE.LineSegments(geo, mat);
+    searchFilamentsGroup.renderOrder = 2;
+    scene.add(searchFilamentsGroup);
+  }
+}
+
+function clearSearchFilaments() {
+  if (searchFilamentsGroup) {
+    scene.remove(searchFilamentsGroup);
+    searchFilamentsGroup = null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 14: NEBULA FOG / CLEARING (PERLIN NOISE)
+// Unwritten stars shrouded in fog that clears as you write
+// ═══════════════════════════════════════════════════════════
+let nebulaMesh = null;
+let nebulaFogUniforms = null;
+
+function createNebulaFog() {
+  // Build a clear mask: RGBA, 1 pixel per star day. R = clear state (0 or 255)
+  const clearData = new Uint8Array(STAR_COUNT * 4);
+  for (let i = 0; i < STAR_COUNT; i++) {
+    clearData[i * 4] = starData[i] ? 255 : 0;     // R = clearness
+    clearData[i * 4 + 1] = 0;                      // G
+    clearData[i * 4 + 2] = 0;                      // B
+    clearData[i * 4 + 3] = 255;                    // A
+  }
+
+  const clearTex = new THREE.DataTexture(clearData, STAR_COUNT, 1, THREE.RGBAFormat);
+  clearTex.needsUpdate = true;
+
+  nebulaFogUniforms = {
+    uTime: { value: 0 },
+    uClearMask: { value: clearTex },
+    uTotalStars: { value: STAR_COUNT },
+    uOpacity: { value: 0.06 },
+  };
+
+  const nebulaGeo = new THREE.SphereGeometry(SPHERE_RADIUS - 2, 64, 32);
+  const nebulaMat = new THREE.ShaderMaterial({
+    uniforms: nebulaFogUniforms,
+    vertexShader: `
+      varying vec3 vWorldPos;
+      varying vec2 vUv;
+      void main() {
+        vWorldPos = position;
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform sampler2D uClearMask;
+      uniform float uTotalStars;
+      uniform float uOpacity;
+      varying vec3 vWorldPos;
+      varying vec2 vUv;
+
+      // 3D Perlin-style noise (simplex approximation)
+      vec3 mod289(vec3 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
+      vec4 mod289(vec4 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
+      vec4 permute(vec4 x) { return mod289(((x * 34.0) + 1.0) * x); }
+      vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+      float snoise(vec3 v) {
+        const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+        const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+        vec3 i = floor(v + dot(v, C.yyy));
+        vec3 x0 = v - i + dot(i, C.xxx);
+        vec3 g = step(x0.yzx, x0.xyz);
+        vec3 l = 1.0 - g;
+        vec3 i1 = min(g.xyz, l.zxy);
+        vec3 i2 = max(g.xyz, l.zxy);
+        vec3 x1 = x0 - i1 + C.xxx;
+        vec3 x2 = x0 - i2 + C.yyy;
+        vec3 x3 = x0 - D.yyy;
+        i = mod289(i);
+        vec4 p = permute(permute(permute(
+          i.z + vec4(0.0, i1.z, i2.z, 1.0))
+          + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+          + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+        float n_ = 0.142857142857;
+        vec3 ns = n_ * D.wyz - D.xzx;
+        vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+        vec4 x_ = floor(j * ns.z);
+        vec4 y_ = floor(j - 7.0 * x_);
+        vec4 x4 = x_ * ns.x + ns.yyyy;
+        vec4 y4 = y_ * ns.x + ns.yyyy;
+        vec4 h = 1.0 - abs(x4) - abs(y4);
+        vec4 b0 = vec4(x4.xy, y4.xy);
+        vec4 b1 = vec4(x4.zw, y4.zw);
+        vec4 s0 = floor(b0) * 2.0 + 1.0;
+        vec4 s1 = floor(b1) * 2.0 + 1.0;
+        vec4 sh = -step(h, vec4(0.0));
+        vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+        vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+        vec3 p0 = vec3(a0.xy, h.x);
+        vec3 p1 = vec3(a0.zw, h.y);
+        vec3 p2 = vec3(a1.xy, h.z);
+        vec3 p3 = vec3(a1.zw, h.w);
+        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+        p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+        vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+        m = m * m;
+        return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+      }
+
+      void main() {
+        // Map UV.x to star index, sample clear mask
+        float starIdx = floor(vUv.x * uTotalStars);
+        float cleared = texture2D(uClearMask, vec2((starIdx + 0.5) / uTotalStars, 0.5)).r;
+
+        // Multi-octave noise for volumetric feel
+        vec3 noiseCoord = vWorldPos * 0.08 + vec3(uTime * 0.01, 0.0, uTime * 0.005);
+        float n = snoise(noiseCoord) * 0.5 + 0.5;
+        n += 0.3 * (snoise(noiseCoord * 2.0) * 0.5 + 0.5);
+        n += 0.15 * (snoise(noiseCoord * 4.0) * 0.5 + 0.5);
+        n = clamp(n / 1.45, 0.0, 1.0);
+
+        // Cleared areas have zero fog
+        float fogDensity = n * (1.0 - cleared) * uOpacity;
+
+        // Deep blue-purple fog color
+        vec3 fogColor = vec3(0.10, 0.04, 0.18);
+
+        // Also add adjacent clearing (smooth radius from cleared stars)
+        fogDensity *= smoothstep(0.0, 0.15, abs(vUv.x - (starIdx + 0.5) / uTotalStars) + (1.0 - cleared) * 0.5);
+
+        gl_FragColor = vec4(fogColor, fogDensity);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.BackSide,
+  });
+
+  nebulaMesh = new THREE.Mesh(nebulaGeo, nebulaMat);
+  nebulaMesh.renderOrder = 0;
+  scene.add(nebulaMesh);
+}
+
+function updateNebulaFog(elapsed) {
+  if (!nebulaFogUniforms) return;
+  nebulaFogUniforms.uTime.value = elapsed;
+}
+
+function updateNebulaClearMask() {
+  if (!nebulaFogUniforms) return;
+  const tex = nebulaFogUniforms.uClearMask.value;
+  const data = tex.image.data;
+  for (let i = 0; i < STAR_COUNT; i++) {
+    data[i * 4] = starData[i] ? 255 : 0; // R channel only
+  }
+  tex.needsUpdate = true;
+
+  // Update sky cleared percentage
+  const written = entries.length;
+  const pct = Math.round((written / 365) * 100);
+  const label = document.getElementById('sky-cleared-label');
+  if (label) label.textContent = `· ${pct}% sky cleared`;
 }
 
 // ═══════════════════════════════════════════════════════════
