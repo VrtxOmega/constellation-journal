@@ -1771,26 +1771,41 @@ function setupEvents() {
   renderer.domElement.addEventListener('mousemove', onMouseMove);
   renderer.domElement.addEventListener('click', onMouseClick);
 
-  // Orbit drag controls
+  // Orbit drag controls — use movement threshold to distinguish click from drag
+  let isMouseDown = false;
+  let mouseDownPos = { x: 0, y: 0 };
+  const DRAG_THRESHOLD = 3; // pixels of movement before it counts as a drag
+
   renderer.domElement.addEventListener('mousedown', (e) => {
     if (e.button === 0 && !isWritePanelOpen && !isOverlayOpen) {
-      isDragging = true;
+      isMouseDown = true;
+      isDragging = false;
+      mouseDownPos = { x: e.clientX, y: e.clientY };
       previousMousePos = { x: e.clientX, y: e.clientY };
-      renderer.domElement.style.cursor = 'grabbing';
     }
   });
   renderer.domElement.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-    const dx = e.clientX - previousMousePos.x;
-    const dy = e.clientY - previousMousePos.y;
-    spherical.theta -= dx * 0.005;
-    spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi - dy * 0.005));
-    previousMousePos = { x: e.clientX, y: e.clientY };
-    updateCameraFromSpherical();
+    if (!isMouseDown) return;
+    const dx = e.clientX - mouseDownPos.x;
+    const dy = e.clientY - mouseDownPos.y;
+    if (!isDragging && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
+      isDragging = true;
+      renderer.domElement.style.cursor = 'grabbing';
+    }
+    if (isDragging) {
+      const moveDx = e.clientX - previousMousePos.x;
+      const moveDy = e.clientY - previousMousePos.y;
+      spherical.theta -= moveDx * 0.005;
+      spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi - moveDy * 0.005));
+      previousMousePos = { x: e.clientX, y: e.clientY };
+      updateCameraFromSpherical();
+    }
   });
   window.addEventListener('mouseup', () => {
+    isMouseDown = false;
     if (isDragging) {
-      isDragging = false;
+      // Delay clearing isDragging so click handler can check it
+      setTimeout(() => { isDragging = false; }, 0);
       renderer.domElement.style.cursor = 'default';
     }
   });
@@ -2138,15 +2153,6 @@ function formatDate(dayOfYear, year) {
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
-function updateNebulaClearMask() {
-  if (!nebulaFogUniforms || !nebulaFogUniforms.uClearMask) return;
-  const tex = nebulaFogUniforms.uClearMask.value;
-  const data = tex.image.data;
-  for (let i = 0; i < STAR_COUNT; i++) {
-    data[i * 4] = starData[i] ? 255 : 0;
-  }
-  tex.needsUpdate = true;
-}
 
 // ═══════════════════════════════════════════════════════════
 // PHASE 14: THE PROPHECY (FUTURE STAR MESSAGES)
@@ -2567,7 +2573,7 @@ function updateNebulaFog(elapsed) {
 }
 
 function updateNebulaClearMask() {
-  if (!nebulaFogUniforms) return;
+  if (!nebulaFogUniforms || !nebulaFogUniforms.uClearMask) return;
   const tex = nebulaFogUniforms.uClearMask.value;
   const data = tex.image.data;
   for (let i = 0; i < STAR_COUNT; i++) {
