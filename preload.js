@@ -25,10 +25,5 @@ contextBridge.exposeInMainWorld('journal', {
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
-  close: () => ipcRenderer.send('window:close'),
-
-  // Screen Recorder
-  getDesktopSourceId: () => ipcRenderer.invoke('getDesktopSourceId'),
-  saveRecording: (buffer) => ipcRenderer.invoke('saveRecording', buffer),
-  resetForDemo: () => ipcRenderer.invoke('resetForDemo')
+  close: () => ipcRenderer.send('window:close')
 });

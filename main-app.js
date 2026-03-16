@@ -1,10 +1,8 @@
 // Constellation Journal — Electron Main Process
 // VERITAS Ω Compliant: No external network calls, no telemetry, local-only persistence.
 
-const { app, BrowserWindow, ipcMain, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const fs = require('fs');
-const os = require('os');
 const Store = require('./src/store');
 const EmotionEngine = require('./src/emotion-engine');
 const StarNamer = require('./src/star-namer');
@@ -116,26 +114,6 @@ function registerIPC() {
     }
   });
   ipcMain.on('window:close', () => mainWindow?.close());
-
-  // Screen Recorder (Phase 13)
-  ipcMain.handle('getDesktopSourceId', async () => {
-    const sources = await desktopCapturer.getSources({ types: ['screen'] });
-    return sources.length > 0 ? sources[0].id : null;
-  });
-
-  ipcMain.handle('saveRecording', async (_event, arrayBuffer) => {
-    const oneDriveDesktop = path.join(os.homedir(), 'OneDrive', 'Desktop');
-    const outPath = path.join(oneDriveDesktop, 'constellation-demo.webm');
-    fs.writeFileSync(outPath, Buffer.from(arrayBuffer));
-    return outPath;
-  });
-
-  // Demo reset — wipe all entries + constellations for clean recording
-  ipcMain.handle('resetForDemo', async () => {
-    store.db.exec('DELETE FROM entries;');
-    store.db.exec('DELETE FROM constellations;');
-    return { success: true };
-  });
 }
 
 // ─── App Lifecycle ─────────────────────────────────────────────
