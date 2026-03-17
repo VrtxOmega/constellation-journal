@@ -2,6 +2,7 @@
 
 > **Your year, written in stars.**
 > Local only. Nothing leaves your machine. Everything leaves a mark.
+> *v2.0 — Emergent Nebula • Bloom • Birth Moment*
 
 ![Constellation Journal](https://raw.githubusercontent.com/RJLopezAI/constellation-journal/main/screenshot.png)
 
@@ -40,6 +41,22 @@ Every journal entry becomes a unique star in a 3D sky. Write daily and watch you
 ### 🎵 Audio Engine
 - Procedural WebAudio: star tones mapped to temperature, typewriter clicks, constellation chimes, ambient drone
 
+### ✨ Visual Effects Engine (v2.0)
+- **Bloom post-processing** — UnrealBloomPass pipeline with configurable strength/radius/threshold
+- **Emergent nebula** — Each entry's glow corona persists forever; clusters of entries blend into nebula clouds
+- **Age-based color** — Recent entries glow bright gold, older entries fade to warm amber (1-year gradient)
+- **Birth moment** — Save triggers: 150ms world-freeze → white-hot flash → shockwave ring → nearby star disturbance → corona fade-in
+- **Star micro-flicker** — Secondary shader noise layer (±2%) gives stars organic life
+- **Depth parallax** — Background stars track camera at 5%, creating infinite depth illusion
+- **Cluster gravity** — Corona sprites drift toward cluster centroids over time
+- **Context-aware camera breathing** — FOV oscillates differently when idle vs near clusters vs during ignition
+- **Panel emergence** — UI panels slide up with 100ms delayed backdrop for a "discovered from space" feel
+
+### 🎥 Screen Recorder
+- One-click built-in window recorder (VP9 @ 8 Mbps)
+- Ctrl+Shift+R global hotkey
+- Saves directly to `.webm` via save dialog
+
 ### 🔒 Security
 - `contextIsolation: true`, `nodeIntegration: false`
 - 100% prepared SQL statements (zero string interpolation)
@@ -60,8 +77,9 @@ npm start
 
 | Component | Technology |
 |-----------|-----------|
-| Runtime | Electron 28 |
-| 3D Engine | Three.js |
+| Runtime | Electron 34 |
+| 3D Engine | Three.js 0.160 |
+| Post-Processing | UnrealBloomPass (Three.js addons) |
 | Database | better-sqlite3 (WAL mode) |
 | Audio | Web Audio API (procedural) |
 | APIs | NASA NeoWs, CNEOS Sentry, DONKI, ISS |
@@ -80,6 +98,8 @@ constellation-journal/
 │   └── constellation-engine.js  # K-means + Prim's MST
 └── renderer/
     ├── app.js               # Scene setup, UI, render loop
+    ├── bloom-setup.js       # Post-processing bridge (ESM→global)
+    ├── recorder-panel.js    # Built-in VP9 window recorder
     ├── celestial-renderer.js # Planets, NEOs, ISS, solar weather
     ├── orbital-mechanics.js  # Keplerian solver + Moon/Sun
     ├── celestial-tracker.js  # NASA API data layer

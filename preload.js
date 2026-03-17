@@ -42,8 +42,9 @@ contextBridge.exposeInMainWorld('journal', {
     ipcRenderer.invoke('entry:search', { year, query })
 });
 
-// WSPR live data bridge (routed through main process, no CORS)
-contextBridge.exposeInMainWorld('wspr', {
-  fetchSpots: (minutes) =>
-    ipcRenderer.invoke('wspr:fetchSpots', { minutes: minutes || 10 })
+// Screen Recorder bridge
+contextBridge.exposeInMainWorld('recorder', {
+  getSources: () => ipcRenderer.invoke('recorder:getSources'),
+  save: (buffer) => ipcRenderer.invoke('recorder:save', { buffer }),
+  onToggle: (callback) => ipcRenderer.on('recorder:toggle', () => callback())
 });

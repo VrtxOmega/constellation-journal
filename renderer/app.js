@@ -13,7 +13,7 @@ const EMPTY_STAR_COLOR = new THREE.Color(0x6070a8);
 const EMPTY_STAR_OPACITY = 0.55;
 const EMPTY_STAR_SIZE = 3.5;
 const WRITTEN_STAR_BASE_SIZE = 5.0;
-const CORONA_DURATION_MS = 86400000; // 24 hours
+const CORONA_DURATION_MS = Infinity; // coronas persist forever — they ARE the nebula
 
 // ═══════════════════════════════════════════════════════════
 // STATE
@@ -121,8 +121,8 @@ async function init() {
 
   // Scene
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x010104);
-  scene.fog = new THREE.FogExp2(0x010104, 0.0008);
+  scene.background = new THREE.Color(0x000000);  // true black void
+  // fog removed — washes out bloom post-processing
 
   // Camera
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -131,8 +131,15 @@ async function init() {
   // Renderer
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(window.devicePixelRatio);  // uncapped for RTX
   document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+  // ── Bloom Post-Processing (from bloom-setup.js module) ──
+  // Module loads async; we poll for it with a short delay.
+  // If not available yet, we set up a retry in animate().
+  if (window.createBloomComposer) {
+    window._bloomComposer = window.createBloomComposer(renderer, scene, camera);
+  }
 
   // ── High Assurance: WebGL Context Loss Recovery ──
   renderer.domElement.addEventListener('webglcontextlost', (event) => {
@@ -157,7 +164,8 @@ async function init() {
   // Create scene elements
   createBackgroundStars();
   createCelestialObjects();
-  createNebula();
+  // createNebula() — DISABLED: bloom amplifies the BackSide sphere into purple wash
+  // CSS vignette provides edge darkening instead
   createMilkyWay();
   createStars();
   createCalendarRing();
@@ -214,7 +222,8 @@ async function init() {
   await loadData();
 
   // Phase 14: Create nebula fog (after data is loaded so clear mask is accurate)
-  createNebulaFog();
+  // createNebulaFog() — DISABLED: replaced by emergent nebula from persistent coronas
+  // Each star's glow sprite IS the nebula. Clusters blend = clouds.
 
   // Phase 14: Listen for midnight prophecy reveals from main process
   window.journal.onProphecyRevealed(onProphecyRevealed);
@@ -555,90 +564,12 @@ function toggleRealConstellations() {
 }
 
 
-// NEBULA LAYER
 // ═══════════════════════════════════════════════════════════
-function createNebula() {
-  const nebulaGeo = new THREE.SphereGeometry(120, 64, 64);
-  nebulaUniforms = {
-    uTime: { value: 0 },
-    uColor1: { value: new THREE.Color(0x3a0a5e) }, // vivid purple
-    uColor2: { value: new THREE.Color(0x0a4a4a) }, // deep teal
-    uColor3: { value: new THREE.Color(0x5a1a30) }, // warm rose
-    uColor4: { value: new THREE.Color(0x1a2a5a) }, // deep blue
-  };
-
-  const nebulaMat = new THREE.ShaderMaterial({
-    uniforms: nebulaUniforms,
-    vertexShader: `
-      varying vec2 vUv;
-      varying vec3 vPosition;
-      void main() {
-        vUv = uv;
-        vPosition = position;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform float uTime;
-      uniform vec3 uColor1;
-      uniform vec3 uColor2;
-      uniform vec3 uColor3;
-      uniform vec3 uColor4;
-      varying vec2 vUv;
-      varying vec3 vPosition;
-
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-      }
-
-      float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        f = f * f * (3.0 - 2.0 * f);
-        float a = hash(i);
-        float b = hash(i + vec2(1.0, 0.0));
-        float c = hash(i + vec2(0.0, 1.0));
-        float d = hash(i + vec2(1.0, 1.0));
-        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-      }
-
-      float fbm(vec2 p) {
-        float v = 0.0;
-        float a = 0.5;
-        for (int i = 0; i < 5; i++) {
-          v += a * noise(p);
-          p *= 2.0;
-          a *= 0.5;
-        }
-        return v;
-      }
-
-      void main() {
-        vec2 uv = vUv + uTime * 0.0015;
-        // Domain warping for organic swirls
-        float warp = fbm(uv * 3.0 + vec2(fbm(uv * 2.0 + uTime * 0.001), fbm(uv * 2.5 - uTime * 0.001)));
-        float n1 = fbm(uv * 3.0 + warp * 0.4);
-        float n2 = fbm(uv * 3.0 + vec2(5.2, 1.3) + warp * 0.3);
-        float n3 = fbm(uv * 3.0 + vec2(9.7, 4.1));
-        float n4 = fbm(uv * 4.0 + vec2(2.3, 7.8));
-
-        vec3 color = mix(uColor1, uColor2, n1);
-        color = mix(color, uColor3, n2 * 0.6);
-        color = mix(color, uColor4, n4 * 0.3);
-
-        float alpha = (n3 * 0.22 + warp * 0.08) * smoothstep(0.0, 0.3, n1);
-        gl_FragColor = vec4(color * 1.3, alpha);
-      }
-    `,
-    transparent: true,
-    side: THREE.BackSide,
-    depthWrite: false,
-  });
-
-  const nebula = new THREE.Mesh(nebulaGeo, nebulaMat);
-  nebula.renderOrder = -2;
-  scene.add(nebula);
-}
+// NEBULA LAYER — DISABLED
+// Replaced by Phase 14 nebula fog which GROWS from journal entries.
+// The old BackSide sphere with purple fbm was amplified by bloom.
+// ═══════════════════════════════════════════════════════════
+function createNebula() { /* no-op: replaced by growing fog system */ }
 
 // ═══════════════════════════════════════════════════════════
 // MILKY WAY BAND
@@ -775,9 +706,13 @@ function createStars() {
         vStarClass = starClass;
 
         // Twinkling — varies by stellar class
-        float twinkleSpeed = starClass > 3.5 ? 0.6 : 1.2; // giants twinkle slower
-        float twinkleAmp = starClass > 3.5 ? 0.15 : 0.3;  // giants are steadier
+        float twinkleSpeed = starClass > 3.5 ? 0.6 : 1.2;
+        float twinkleAmp = starClass > 3.5 ? 0.15 : 0.3;
         float twinkle = (1.0 - twinkleAmp) + twinkleAmp * sin(uTime * twinkleSpeed + phase * 6.28);
+
+        // Micro-flicker: secondary noise layer (±2%) — makes stars feel alive
+        float flicker2 = 0.98 + 0.04 * sin(uTime * 3.7 + phase * 13.37 + float(gl_VertexID) * 0.73);
+        twinkle *= flicker2;
 
         // Dwarf stars: faster, more erratic twinkle
         if (starClass > 0.5 && starClass < 1.5) {
@@ -911,8 +846,20 @@ function createCalendarRing() {
 // ═══════════════════════════════════════════════════════════
 // CORONA EFFECT (NEW ENTRIES)
 // ═══════════════════════════════════════════════════════════
-function addCorona(starIndex, colorHex) {
+function addCorona(starIndex, colorHex, daysOld) {
   const position = starPositions[starIndex];
+
+  // Age-based color: recent = bright gold, old = faded amber
+  let coronaColor;
+  if (daysOld !== undefined && daysOld > 0) {
+    const ageFactor = Math.min(daysOld / 365, 1.0); // 0=new, 1=year old
+    const r = 1.0 - ageFactor * 0.22;    // 1.0 → 0.78
+    const g = 0.82 - ageFactor * 0.30;   // 0.82 → 0.52
+    const b = 0.50 - ageFactor * 0.20;   // 0.50 → 0.30
+    coronaColor = new THREE.Color(r, g, b);
+  } else {
+    coronaColor = new THREE.Color(colorHex);
+  }
 
   // Create soft circular glow texture for corona — larger, brighter
   const cv = document.createElement('canvas');
@@ -930,35 +877,66 @@ function addCorona(starIndex, colorHex) {
 
   const spriteMat = new THREE.SpriteMaterial({
     map: coronaTex,
-    color: new THREE.Color(colorHex),
+    color: coronaColor,
     transparent: true,
-    opacity: 0.7,
+    opacity: daysOld > 0 ? 0.12 : 0.7, // old entries start at resting opacity
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
 
   const sprite = new THREE.Sprite(spriteMat);
   sprite.position.copy(position);
-  sprite.scale.set(10, 10, 1);
-  sprite.userData = { createdAt: Date.now(), starIndex };
+  const baseScale = daysOld > 0 ? 12 + Math.min(daysOld / 30, 6) : 10; // older = slightly larger
+  sprite.scale.set(baseScale, baseScale, 1);
+  sprite.userData = { createdAt: Date.now(), starIndex, daysOld: daysOld || 0, baseScale };
   scene.add(sprite);
   coronaSprites.push(sprite);
 }
 
 function updateCoronas() {
   const now = Date.now();
+
+  // ── Cluster gravity hint: compute centroid of nearby coronas ──
   for (let i = coronaSprites.length - 1; i >= 0; i--) {
     const sprite = coronaSprites[i];
     const elapsed = now - sprite.userData.createdAt;
-    if (elapsed > CORONA_DURATION_MS) {
-      scene.remove(sprite);
-      coronaSprites.splice(i, 1);
-    } else {
-      const fade = 1 - (elapsed / CORONA_DURATION_MS);
-      sprite.material.opacity = 0.6 * fade;
-      // Breathe effect: gentle pulse + expand
+
+    // Persistent coronas: fade from initial bright to resting glow
+    const FADE_IN_MS = 30000;
+    const MIN_OPACITY = 0.08;
+    const INITIAL_OPACITY = sprite.userData.daysOld > 0 ? 0.12 : 0.7;
+
+    if (elapsed < FADE_IN_MS && sprite.userData.daysOld === 0) {
+      const t = elapsed / FADE_IN_MS;
+      sprite.material.opacity = INITIAL_OPACITY + (MIN_OPACITY - INITIAL_OPACITY) * t;
       const breathe = 1.0 + 0.15 * Math.sin(elapsed * 0.003);
-      sprite.scale.setScalar((10 + (1 - fade) * 4) * breathe);
+      sprite.scale.setScalar(sprite.userData.baseScale * breathe);
+    } else {
+      sprite.material.opacity = MIN_OPACITY + 0.02 * Math.sin(elapsed * 0.0005);
+      const slowBreathe = 1.0 + 0.04 * Math.sin(elapsed * 0.0008);
+      sprite.scale.setScalar(sprite.userData.baseScale * slowBreathe);
+
+      // Gravity drift: inch toward nearest cluster centroid (very subtle)
+      if (coronaSprites.length > 3) {
+        let cx = 0, cy = 0, cz = 0, count = 0;
+        for (let j = 0; j < coronaSprites.length; j++) {
+          if (j === i) continue;
+          const d = sprite.position.distanceTo(coronaSprites[j].position);
+          if (d < 20 && d > 0.5) {
+            cx += coronaSprites[j].position.x;
+            cy += coronaSprites[j].position.y;
+            cz += coronaSprites[j].position.z;
+            count++;
+          }
+        }
+        if (count >= 2) {
+          cx /= count; cy /= count; cz /= count;
+          // Extremely gentle drift — 0.0001 units per frame
+          sprite.position.x += (cx - sprite.position.x) * 0.0001;
+          sprite.position.y += (cy - sprite.position.y) * 0.0001;
+          sprite.position.z += (cz - sprite.position.z) * 0.0001;
+        }
+      }
     }
   }
 
@@ -1065,6 +1043,226 @@ function updateNovaBursts() {
     burst.points.material.opacity = Math.max(0, 1 - progress * progress);
     burst.points.material.size = 2.5 * (1 - progress * 0.5);
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// LIGHT A STAR — IGNITION EFFECT
+// When a journal entry is saved, the star doesn't just appear.
+// It IGNITES. Flash → ramp → settle → breathe.
+// ═══════════════════════════════════════════════════════════
+let activeIgnitions = [];
+
+function igniteStar(starIndex, targetColor, targetSize, starClassVal) {
+  const position = starPositions[starIndex];
+  if (!position) return;
+
+  const colorsArr = starPoints.geometry.attributes.color.array;
+  const sizesArr = starPoints.geometry.attributes.size.array;
+
+  // ══ BIRTH MOMENT: World-freeze — time stops for 150ms ══
+  window._birthMomentFreeze = performance.now();
+
+  // ── Phase 0: Start the star white-hot and tiny (pre-ignition) ──
+  colorsArr[starIndex * 3]     = 1.0;
+  colorsArr[starIndex * 3 + 1] = 1.0;
+  colorsArr[starIndex * 3 + 2] = 1.0;
+  sizesArr[starIndex] = 1.5; // tiny seed
+  starPoints.geometry.attributes.color.needsUpdate = true;
+  starPoints.geometry.attributes.size.needsUpdate = true;
+
+  // ── Nearby star disturbance: bump neighbors bigger ──
+  const DISTURBANCE_RADIUS = 15;
+  const nearbyStars = [];
+  for (let i = 0; i < STAR_COUNT; i++) {
+    if (i === starIndex || !starData[i]) continue; // only affect written stars
+    const d = starPositions[i].distanceTo(position);
+    if (d < DISTURBANCE_RADIUS) {
+      const originalSize = sizesArr[i];
+      const distFactor = 1 - (d / DISTURBANCE_RADIUS); // closer = stronger
+      nearbyStars.push({ index: i, originalSize, distFactor });
+      // Immediate bump: 30% larger, proportional to proximity
+      sizesArr[i] = originalSize * (1 + 0.3 * distFactor);
+    }
+  }
+  if (nearbyStars.length > 0) starPoints.geometry.attributes.size.needsUpdate = true;
+
+  // ── Shockwave ring mesh ──
+  const ringGeo = new THREE.RingGeometry(0.1, 0.6, 64);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.8,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+  ringMesh.position.copy(position);
+  ringMesh.lookAt(camera.position);
+  scene.add(ringMesh);
+
+  // ── Flash sprite (white-hot core) ──
+  const flashCv = document.createElement('canvas');
+  flashCv.width = 128; flashCv.height = 128;
+  const flashCtx = flashCv.getContext('2d');
+  const flashGrad = flashCtx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  flashGrad.addColorStop(0, 'rgba(255,255,255,1)');
+  flashGrad.addColorStop(0.1, 'rgba(255,250,230,0.9)');
+  flashGrad.addColorStop(0.3, 'rgba(255,220,150,0.4)');
+  flashGrad.addColorStop(0.6, 'rgba(255,180,80,0.1)');
+  flashGrad.addColorStop(1, 'rgba(255,150,50,0)');
+  flashCtx.fillStyle = flashGrad;
+  flashCtx.fillRect(0, 0, 128, 128);
+  const flashTex = new THREE.CanvasTexture(flashCv);
+
+  const flashMat = new THREE.SpriteMaterial({
+    map: flashTex,
+    transparent: true,
+    opacity: 1.0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const flashSprite = new THREE.Sprite(flashMat);
+  flashSprite.position.copy(position);
+  flashSprite.scale.set(2, 2, 1);
+  scene.add(flashSprite);
+
+  // ── Register ignition for animation loop ──
+  activeIgnitions.push({
+    starIndex,
+    targetColor: new THREE.Color(targetColor),
+    targetSize,
+    starClassVal,
+    startTime: performance.now(),
+    ringMesh,
+    flashSprite,
+    nearbyStars, // for disturbance settling
+    phase: 'flash',
+    duration: {
+      flash: 300,
+      ramp: 1500,
+      settle: 500,
+    },
+  });
+}
+
+function updateIgnitions() {
+  const now = performance.now();
+  const colorsArr = starPoints.geometry.attributes.color.array;
+  const sizesArr = starPoints.geometry.attributes.size.array;
+  let needsColorUpdate = false;
+  let needsSizeUpdate = false;
+
+  for (let i = activeIgnitions.length - 1; i >= 0; i--) {
+    const ig = activeIgnitions[i];
+    const elapsed = now - ig.startTime;
+    const totalDuration = ig.duration.flash + ig.duration.ramp + ig.duration.settle;
+
+    if (elapsed >= totalDuration) {
+      // ── Done: set final state and clean up ──
+      colorsArr[ig.starIndex * 3]     = ig.targetColor.r;
+      colorsArr[ig.starIndex * 3 + 1] = ig.targetColor.g;
+      colorsArr[ig.starIndex * 3 + 2] = ig.targetColor.b;
+      sizesArr[ig.starIndex] = ig.targetSize;
+      needsColorUpdate = true;
+      needsSizeUpdate = true;
+
+      // Remove effects
+      scene.remove(ig.ringMesh);
+      ig.ringMesh.geometry.dispose();
+      ig.ringMesh.material.dispose();
+      scene.remove(ig.flashSprite);
+      ig.flashSprite.material.map.dispose();
+      ig.flashSprite.material.dispose();
+
+      // Reset nearby stars to original sizes
+      if (ig.nearbyStars) {
+        for (const ns of ig.nearbyStars) {
+          sizesArr[ns.index] = ns.originalSize;
+        }
+        needsSizeUpdate = true;
+      }
+
+      activeIgnitions.splice(i, 1);
+      continue;
+    }
+
+    // ── FLASH phase (0 → 300ms) ──
+    if (elapsed < ig.duration.flash) {
+      const t = elapsed / ig.duration.flash;
+      const easeOut = 1 - Math.pow(1 - t, 3);
+
+      // Flash sprite: expand rapidly then start fading
+      ig.flashSprite.scale.setScalar(2 + easeOut * 18);
+      ig.flashSprite.material.opacity = 1.0 - easeOut * 0.5;
+
+      // Shockwave ring: expand outward
+      const ringScale = 1 + easeOut * 20;
+      ig.ringMesh.scale.set(ringScale, ringScale, 1);
+      ig.ringMesh.material.opacity = 0.8 * (1 - easeOut);
+      ig.ringMesh.lookAt(camera.position);
+
+      // Star stays white-hot, grows slightly
+      sizesArr[ig.starIndex] = 1.5 + t * 4;
+      needsSizeUpdate = true;
+    }
+
+    // ── RAMP phase (300ms → 1800ms) ──
+    else if (elapsed < ig.duration.flash + ig.duration.ramp) {
+      const rampTime = elapsed - ig.duration.flash;
+      const t = rampTime / ig.duration.ramp;
+      const easeOut = 1 - Math.pow(1 - t, 3); // easeOutCubic
+
+      // Fade flash sprite away
+      ig.flashSprite.material.opacity = Math.max(0, 0.5 * (1 - t));
+      ig.flashSprite.scale.setScalar(20 + t * 5);
+
+      // Ring is gone by now
+      ig.ringMesh.material.opacity = 0;
+
+      // Color ramps from white → target color
+      colorsArr[ig.starIndex * 3]     = 1.0 + (ig.targetColor.r - 1.0) * easeOut;
+      colorsArr[ig.starIndex * 3 + 1] = 1.0 + (ig.targetColor.g - 1.0) * easeOut;
+      colorsArr[ig.starIndex * 3 + 2] = 1.0 + (ig.targetColor.b - 1.0) * easeOut;
+      needsColorUpdate = true;
+
+      // Size ramps from seed to target
+      sizesArr[ig.starIndex] = 5.5 + (ig.targetSize - 5.5) * easeOut;
+      needsSizeUpdate = true;
+
+      // Nearby stars settle back to original sizes
+      if (ig.nearbyStars) {
+        for (const ns of ig.nearbyStars) {
+          const bumped = ns.originalSize * (1 + 0.3 * ns.distFactor);
+          sizesArr[ns.index] = bumped + (ns.originalSize - bumped) * easeOut;
+        }
+      }
+    }
+
+    // ── SETTLE phase (1800ms → 2300ms) ──
+    else {
+      const settleTime = elapsed - ig.duration.flash - ig.duration.ramp;
+      const t = settleTime / ig.duration.settle;
+
+      // Final color is set
+      colorsArr[ig.starIndex * 3]     = ig.targetColor.r;
+      colorsArr[ig.starIndex * 3 + 1] = ig.targetColor.g;
+      colorsArr[ig.starIndex * 3 + 2] = ig.targetColor.b;
+      needsColorUpdate = true;
+
+      // Gentle pulse at final size (breathe in/out)
+      const breathe = 1.0 + 0.15 * Math.sin(t * Math.PI * 2);
+      sizesArr[ig.starIndex] = ig.targetSize * breathe;
+      needsSizeUpdate = true;
+
+      // Clean up effects if still visible
+      ig.flashSprite.material.opacity = 0;
+      ig.ringMesh.material.opacity = 0;
+    }
+  }
+
+  if (needsColorUpdate) starPoints.geometry.attributes.color.needsUpdate = true;
+  if (needsSizeUpdate) starPoints.geometry.attributes.size.needsUpdate = true;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1570,10 +1768,9 @@ async function loadData() {
 
     starData[idx] = entry;
 
-    // Corona for entries less than 24 hours old
-    if (Date.now() - entryTime < CORONA_DURATION_MS) {
-      addCorona(idx, entry.star_color_hex);
-    }
+    // Persistent corona for EVERY written entry — they ARE the emergent nebula
+    const ageDaysForCorona = Math.max(0, (Date.now() - entryTime) / (1000 * 60 * 60 * 24));
+    addCorona(idx, entry.star_color_hex, ageDaysForCorona);
 
     // Phase 8: Gravitational Well for crisis entries
     const valence = entry.valence || 0;
@@ -2120,17 +2317,8 @@ async function saveEntry() {
   const dayOfYear = parseInt(panel.dataset.dayOfYear);
   const entry = await window.journal.saveEntry(dayOfYear, currentYear, text);
 
-  // Update star visual
+  // ── Compute star properties (same classification logic) ──
   const idx = dayOfYear - 1;
-  const color = new THREE.Color(entry.star_color_hex);
-  const colorsArr = starPoints.geometry.attributes.color.array;
-  const sizesArr = starPoints.geometry.attributes.size.array;
-
-  colorsArr[idx * 3] = color.r;
-  colorsArr[idx * 3 + 1] = color.g;
-  colorsArr[idx * 3 + 2] = color.b;
-
-  // ── Phase 3A: Stellar Classification on save ──
   const textLen = Math.min(text.length, 2000);
   let starSize, starClassVal;
   if (textLen < 100) {
@@ -2144,25 +2332,26 @@ async function saveEntry() {
   } else {
     starSize = 10.5; starClassVal = 5.0;
   }
-  sizesArr[idx] = starSize;
+
+  // Set stellar classification immediately (shader uses it for twinkle/diffraction)
   const starClassBuf = starPoints.geometry.attributes.starClass;
   if (starClassBuf) {
     starClassBuf.array[idx] = starClassVal;
     starClassBuf.needsUpdate = true;
   }
 
-  starPoints.geometry.attributes.color.needsUpdate = true;
-  starPoints.geometry.attributes.size.needsUpdate = true;
-
   starData[idx] = entry;
 
-  // Add corona
-  addCorona(idx, entry.star_color_hex);
+  // ══ LIGHT A STAR: Ignite instead of instant placement ══
+  igniteStar(idx, entry.star_color_hex, starSize, starClassVal);
 
-  // Phase 3C: Nova burst for giant/supergiant entries
-  if (starClassVal >= 4.0) {
-    createNovaBurst(idx, entry.star_color_hex);
-  }
+  // Delay corona + nova burst so they appear AFTER the flash phase
+  setTimeout(() => {
+    addCorona(idx, entry.star_color_hex);
+    if (starClassVal >= 4.0) {
+      createNovaBurst(idx, entry.star_color_hex);
+    }
+  }, 400); // 400ms = just after flash phase ends
 
   // Play star tone
   if (window.AudioEngine) window.AudioEngine.playStarTone(entry.star_temperature_k);
@@ -2254,6 +2443,7 @@ function setupEvents() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    if (window._bloomComposer) window._bloomComposer.setSize(window.innerWidth, window.innerHeight);
   });
 
   // Keyboard shortcuts
@@ -2648,6 +2838,18 @@ function animate() {
   const dt = clock.getDelta();
   const elapsed = clock.elapsedTime;
 
+  // ══ BIRTH MOMENT: World-freeze — subsystems pause, only ignition plays ══
+  const FREEZE_DURATION_MS = 150;
+  let worldFrozen = false;
+  if (window._birthMomentFreeze) {
+    const freezeElapsed = performance.now() - window._birthMomentFreeze;
+    if (freezeElapsed < FREEZE_DURATION_MS) {
+      worldFrozen = true;
+    } else {
+      window._birthMomentFreeze = null; // unfreeze
+    }
+  }
+
   // ── Error-guarded subsystem helper ──
   // Each subsystem gets its own try/catch so one crash can't freeze the UI.
   // Errors are logged once per subsystem to avoid flooding the console.
@@ -2678,6 +2880,25 @@ function animate() {
     updateCameraFromSpherical();
   }
 
+  // ── Camera breathing: context-aware FOV oscillation ──
+  if (!worldFrozen) {
+    const coronaDensity = Math.min(coronaSprites.length / 100, 1.0); // 0—1
+    const isIgniting = activeIgnitions.length > 0;
+    let breathAmp, breathFreq;
+    if (isIgniting) {
+      breathAmp = 0.1;  // stabilize during ignition
+      breathFreq = 0.005;
+    } else if (coronaDensity > 0.5) {
+      breathAmp = 0.3;  // tighter pulse near dense nebula
+      breathFreq = 0.015;
+    } else {
+      breathAmp = 0.5;  // slow wide drift in sparse sky
+      breathFreq = 0.008;
+    }
+    camera.fov = 60 + breathAmp * Math.sin(elapsed * breathFreq * Math.PI * 2);
+    camera.updateProjectionMatrix();
+  }
+
   // Calendar ring follows sphere rotation slightly
   if (calendarRing) {
     calendarRing.rotation.z = elapsed * 0.00005;
@@ -2689,16 +2910,17 @@ function animate() {
     const hour = now.getHours();
     let ambientBrightness = 0.0;
     if (hour >= 6 && hour < 18) {
-      ambientBrightness = 0.012 * Math.sin(((hour - 6) / 12) * Math.PI);
+      ambientBrightness = 0.003 * Math.sin(((hour - 6) / 12) * Math.PI);
     }
     scene.background.setRGB(
-      0.004 + ambientBrightness * 0.08,
-      0.004 + ambientBrightness * 0.10,
-      0.016 + ambientBrightness * 0.15
+      ambientBrightness * 0.02,
+      ambientBrightness * 0.02,
+      ambientBrightness * 0.04
     );
   });
 
   guard('coronas', () => updateCoronas());
+  guard('ignitions', () => updateIgnitions());
   guard('lightEcho', () => updateLightEcho());
   guard('gravityWells', () => updateGravityWells(elapsed));
   guard('nebulaFog', () => updateNebulaFog(elapsed));
@@ -2734,7 +2956,29 @@ function animate() {
     }
   });
 
-  renderer.render(scene, camera);
+
+  // ── Depth parallax: background stars lag camera ──
+  guard('parallax', () => {
+    if (window._bgStars && !worldFrozen) {
+      // Background stars slightly follow camera position (5%) 
+      // creating parallax — distant stars move less
+      window._bgStars.position.x = camera.position.x * 0.05;
+      window._bgStars.position.y = camera.position.y * 0.05;
+      window._bgStars.position.z = camera.position.z * 0.05;
+    }
+  });
+
+  // ── Bloom composer: init on first frame if module was late loading ──
+  if (!window._bloomComposer && window.createBloomComposer) {
+    window._bloomComposer = window.createBloomComposer(renderer, scene, camera);
+  }
+
+  // Render through bloom composer if available, else fallback
+  if (window._bloomComposer) {
+    window._bloomComposer.render();
+  } else {
+    renderer.render(scene, camera);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3043,7 +3287,7 @@ function createNebulaFog() {
     uTime: { value: 0 },
     uClearMask: { value: clearTex },
     uTotalStars: { value: STAR_COUNT },
-    uOpacity: { value: 0.14 },
+    uOpacity: { value: 0.08 },  // subtle — not overwhelming
   };
 
   const nebulaGeo = new THREE.SphereGeometry(SPHERE_RADIUS - 2, 64, 32);
@@ -3138,11 +3382,11 @@ function createNebulaFog() {
         n += 0.15 * (snoise(noiseCoord * 4.0) * 0.5 + 0.5);
         n = clamp(n / 1.45, 0.0, 1.0);
 
-        // Cleared areas have zero fog
-        float fogDensity = n * (1.0 - cleared) * uOpacity * edgeFade;
+        // Fog only appears WHERE entries exist (grows from thoughts)
+        float fogDensity = n * cleared * uOpacity * edgeFade;
 
-        // Deep blue-purple fog color
-        vec3 fogColor = vec3(0.10, 0.04, 0.18);
+        // Warm gold fog color — nebula born from your writing
+        vec3 fogColor = vec3(0.18, 0.12, 0.04);
 
         // Also add adjacent clearing (smooth radius from cleared stars)
         fogDensity *= smoothstep(0.0, 0.15, abs(vUv.x - (starIdx + 0.5) / uTotalStars) + (1.0 - cleared) * 0.5);
@@ -3179,7 +3423,7 @@ function updateNebulaClearMask() {
   const written = entries.length;
   const pct = Math.round((written / 365) * 100);
   const label = document.getElementById('sky-cleared-label');
-  if (label) label.textContent = `· ${pct}% sky cleared`;
+  if (label) label.textContent = `· ${pct}% nebula grown`;
 }
 
 // ═══════════════════════════════════════════════════════════

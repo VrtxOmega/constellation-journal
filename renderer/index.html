@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://api.nasa.gov https://ssd-api.jpl.nasa.gov http://api.open-notify.org https://www.wsprnet.org https://api.nasa.gov;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://api.nasa.gov https://ssd-api.jpl.nasa.gov http://api.open-notify.org https://www.wsprnet.org https://api.nasa.gov;">
   <title>Constellation Journal</title>
   <link rel="stylesheet" href="styles.css">
   <style>
@@ -58,6 +58,7 @@
       <button id="btn-settings" class="title-btn" title="Settings">⚙</button>
       <button id="btn-constellations-toggle" class="title-btn" title="Toggle Constellation Lines">✧</button>
       <button id="btn-celestial-toggle" class="title-btn" title="Toggle Celestial Tracker" style="font-size:14px;">🌍</button>
+      <button id="btn-recorder" class="title-btn" title="Screen Recorder (Ctrl+Shift+R)" style="font-size:14px;color:#ee4455;">⏺</button>
       <button id="btn-celestial-info" class="title-btn" title="Celestial Info Panel" style="font-size:14px;display:none;">📡</button>
       <button id="btn-sound-toggle" class="title-btn" title="Toggle Sound">🔇</button>
       <button id="btn-minimize" class="title-btn" title="Minimize">─</button>
@@ -140,6 +141,7 @@
 
   <!-- Three.js Canvas Container -->
   <div id="canvas-container"></div>
+  <div class="vignette"></div>
 
   <!-- Star Info Tooltip -->
   <div id="star-tooltip" class="hidden">
@@ -314,6 +316,14 @@
 
   <!-- Scripts -->
   <script src="../node_modules/three/build/three.min.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "../node_modules/three/build/three.module.js"
+    }
+  }
+  </script>
+  <script type="module" src="bloom-setup.js"></script>
   <script src="star-catalog.js"></script>
   <script src="messier-catalog.js"></script>
   <script src="constellation-lines.js"></script>
@@ -328,6 +338,8 @@
   <script src="audio-engine.js"></script>
   <script src="meaning-objects.js"></script>
   <script src="app.js"></script>
+  <script src="recorder-panel.js"></script>
+
 </body>
 
 </html>

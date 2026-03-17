@@ -1,6 +1,6 @@
 {
   "name": "constellation-journal",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Local-only journaling app — 365 stars, emotional mapping, automatic constellations",
   "main": "main-app.js",
   "scripts": {

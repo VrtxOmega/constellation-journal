@@ -1,7 +1,8 @@
 // Constellation Journal — Electron Main Process
 // VERITAS Ω Compliant: No external network calls, no telemetry, local-only persistence.
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, dialog, globalShortcut } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const Store = require('./src/store');
 const EmotionEngine = require('./src/emotion-engine');
@@ -152,6 +153,33 @@ function registerIPC() {
       return { error: err.message, spots: [] };
     }
   });
+
+  // ── Screen Recorder IPC ──────────────────────────────────────
+  ipcMain.handle('recorder:getSources', async () => {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen', 'window'],
+      thumbnailSize: { width: 320, height: 180 },
+      fetchWindowIcons: true
+    });
+    return sources.map(s => ({
+      id: s.id,
+      name: s.name,
+      thumbnail: s.thumbnail.toDataURL(),
+      appIcon: s.appIcon ? s.appIcon.toDataURL() : null,
+      isScreen: s.id.startsWith('screen:')
+    }));
+  });
+
+  ipcMain.handle('recorder:save', async (_event, { buffer }) => {
+    const { filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save Recording',
+      defaultPath: `recording-${Date.now()}.webm`,
+      filters: [{ name: 'Video', extensions: ['webm'] }]
+    });
+    if (!filePath) return { saved: false };
+    fs.writeFileSync(filePath, Buffer.from(buffer));
+    return { saved: true, path: filePath };
+  });
 }
 
 // ─── App Lifecycle ─────────────────────────────────────────────
@@ -159,6 +187,11 @@ app.whenReady().then(() => {
   store = new Store();
   registerIPC();
   createWindow();
+
+  // Global hotkey: Ctrl+Shift+R to toggle recording
+  globalShortcut.register('CommandOrControl+Shift+R', () => {
+    if (mainWindow) mainWindow.webContents.send('recorder:toggle');
+  });
 
   // ── Phase 14: Midnight Prophecy Reveal Timer ──
   // Check every 60 seconds if any prophecies should be revealed
