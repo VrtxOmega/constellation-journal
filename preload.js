@@ -41,3 +41,9 @@ contextBridge.exposeInMainWorld('journal', {
   searchEntries: (year, query) =>
     ipcRenderer.invoke('entry:search', { year, query })
 });
+
+// WSPR live data bridge (routed through main process, no CORS)
+contextBridge.exposeInMainWorld('wspr', {
+  fetchSpots: (minutes) =>
+    ipcRenderer.invoke('wspr:fetchSpots', { minutes: minutes || 10 })
+});

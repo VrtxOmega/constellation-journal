@@ -32,8 +32,7 @@ let entries = [];
 let constellations = [];
 let animationId;
 let clock;
-let audioCtx = null;
-let soundEnabled = false;
+// Audio state managed by AudioEngine module
 let nebulaUniforms;
 
 // Orbit controls state
@@ -61,7 +60,7 @@ function flyToStar(starPosition) {
   const dir = starPosition.clone().normalize();
   const targetTheta = Math.atan2(dir.x, dir.z);
   const targetPhi = Math.acos(Math.max(-1, Math.min(1, dir.y)));
-  const targetRadius = Math.max(40, spherical.radius - 15); // zoom in slightly
+  const targetRadius = Math.max(25, spherical.radius - 15); // zoom in toward star
 
   targetSpherical = { theta: targetTheta, phi: targetPhi, radius: targetRadius };
   flyToStart = { theta: spherical.theta, phi: spherical.phi, radius: spherical.radius };
@@ -163,7 +162,53 @@ async function init() {
   createStars();
   createCalendarRing();
   createRealConstellationLines();
-  createPlanets();
+
+  // ── Sky Layer Manager: init before any layers ──
+  if (window.SkyLayerManager) {
+    window.SkyLayerManager.init(scene, camera);
+  }
+
+  // ── Celestial Tracker: replaces old createPlanets() ──
+  if (window.CelestialRenderer && window.CelestialTracker) {
+    window.CelestialRenderer.init(scene, camera);
+
+    // Register celestial layers with sky layer manager
+    if (window.SkyLayerManager) {
+      window.SkyLayerManager.registerLayer({
+        id: 'celestial-tracker',
+        name: 'Celestial Tracker',
+        class: 'celestial',
+        visible: true,
+        group: window.CelestialRenderer._getGroup ? window.CelestialRenderer._getGroup() : new THREE.Group(),
+        update: (dt) => window.CelestialRenderer.update(dt),
+        hitTest: (rc) => window.CelestialRenderer.hitTest(rc)
+      });
+    }
+
+    window.CelestialTracker.init().then(() => {
+      window.CelestialRenderer.updateAll(window.CelestialTracker);
+    });
+    // Refresh renderer every 30s
+    setInterval(() => {
+      if (window.CelestialTracker.isEnabled()) {
+        window.CelestialRenderer.updateAll(window.CelestialTracker);
+      }
+    }, 30000);
+  } else {
+    createPlanets(); // fallback to old system
+  }
+
+  // ── Meteor Showers: Phase 4A ──
+  if (window.MeteorRenderer && window.MeteorShowers) {
+    window.MeteorRenderer.init(scene, camera);
+    // Refresh shower activity every hour
+    setInterval(() => window.MeteorRenderer.refreshShowers(), 3600000);
+  }
+
+  // ── Meaning Objects: Visual archetypes for journal stars ──
+  if (window.MeaningObjects) {
+    window.MeaningObjects.init(scene);
+  }
 
   // Load data
   await loadData();
@@ -653,7 +698,7 @@ function createMilkyWay() {
   const mat = new THREE.PointsMaterial({
     size: 0.9,
     transparent: true,
-    opacity: 0.18,
+    opacity: 0.35,
     sizeAttenuation: true,
     depthWrite: false,
     map: circleTex,
@@ -679,6 +724,7 @@ function createStars() {
   const sizes = new Float32Array(STAR_COUNT);
   const phases = new Float32Array(STAR_COUNT);
   const isPulsar = new Float32Array(STAR_COUNT); // Phase 14: Prophecy pulsar flag
+  const starClassArr = new Float32Array(STAR_COUNT); // Phase 3A: Stellar classification
 
   for (let i = 0; i < STAR_COUNT; i++) {
     positions[i * 3] = starPositions[i].x;
@@ -692,6 +738,7 @@ function createStars() {
     sizes[i] = EMPTY_STAR_SIZE;
     phases[i] = Math.random() * Math.PI * 2;
     isPulsar[i] = 0.0;
+    starClassArr[i] = 0.0; // 0 = empty/unwritten
   }
 
   const geometry = new THREE.BufferGeometry();
@@ -700,6 +747,7 @@ function createStars() {
   geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
   geometry.setAttribute('phase', new THREE.BufferAttribute(phases, 1));
   geometry.setAttribute('isPulsar', new THREE.BufferAttribute(isPulsar, 1));
+  geometry.setAttribute('starClass', new THREE.BufferAttribute(starClassArr, 1));
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -712,6 +760,7 @@ function createStars() {
       attribute float size;
       attribute float phase;
       attribute float isPulsar;
+      attribute float starClass;
       attribute vec3 color;
       uniform float uTime;
       uniform float uPixelRatio;
@@ -719,20 +768,34 @@ function createStars() {
       uniform float uSearchDim;
       varying vec3 vColor;
       varying float vAlpha;
+      varying float vStarClass;
 
       void main() {
         vColor = color;
+        vStarClass = starClass;
 
-        // Twinkling — more pronounced for empty stars
-        float twinkle = 0.7 + 0.3 * sin(uTime * 1.2 + phase * 6.28);
+        // Twinkling — varies by stellar class
+        float twinkleSpeed = starClass > 3.5 ? 0.6 : 1.2; // giants twinkle slower
+        float twinkleAmp = starClass > 3.5 ? 0.15 : 0.3;  // giants are steadier
+        float twinkle = (1.0 - twinkleAmp) + twinkleAmp * sin(uTime * twinkleSpeed + phase * 6.28);
 
-        // Pulsar animation (Phase 14) — rapid sharp pulsing for prophecy stars
+        // Dwarf stars: faster, more erratic twinkle
+        if (starClass > 0.5 && starClass < 1.5) {
+          twinkle = 0.5 + 0.5 * sin(uTime * 2.5 + phase * 12.56);
+        }
+
+        // Pulsar animation (Phase 14)
         float pulseSize = size;
         if (isPulsar > 0.5) {
           float pulsarBeat = 0.5 + 0.5 * pow(abs(sin(uTime * 6.0 + phase)), 4.0);
           pulseSize = size * (0.6 + pulsarBeat * 1.4);
           twinkle = pulsarBeat;
-          vColor = mix(color, vec3(0.83, 0.69, 0.22), 0.5); // Amber tint
+          vColor = mix(color, vec3(0.83, 0.69, 0.22), 0.5);
+        }
+
+        // Giant/Supergiant: warm core enhancement
+        if (starClass > 3.5) {
+          vColor = mix(color, vec3(1.0, 0.95, 0.85), 0.1 * (starClass - 3.0));
         }
 
         // Hover pulse
@@ -743,14 +806,16 @@ function createStars() {
           twinkle = 1.0;
         }
 
-        // Search dim (Phase 14): dim non-matching stars
+        // Search dim (Phase 14)
         float searchMult = 1.0;
         if (uSearchDim > 0.5 && size < 4.1 && isPulsar < 0.5) {
           searchMult = 0.15;
         }
 
-        // Empty stars (size <= 4.0) get a softer but visible alpha
-        vAlpha = twinkle * (size > 4.0 || isPulsar > 0.5 ? 1.0 : 0.55) * searchMult;
+        // Alpha by class: empty = dim, dwarf = subtle, main+ = full
+        float classAlpha = starClass < 0.5 ? 0.55 : (starClass < 1.5 ? 0.7 : 1.0);
+        if (isPulsar > 0.5) classAlpha = 1.0;
+        vAlpha = twinkle * classAlpha * searchMult;
 
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
         gl_PointSize = pulseSize * uPixelRatio * (200.0 / -mvPosition.z);
@@ -760,24 +825,36 @@ function createStars() {
     fragmentShader: `
       varying vec3 vColor;
       varying float vAlpha;
+      varying float vStarClass;
 
       void main() {
         float dist = length(gl_PointCoord - vec2(0.5));
 
-        // Bright core + wider glow halo + subtle outer bloom
-        float core = 1.0 - smoothstep(0.0, 0.12, dist);
-        float glow = 1.0 - smoothstep(0.0, 0.45, dist);
+        // Core + glow — class-dependent radii
+        float coreR = vStarClass > 3.5 ? 0.08 : 0.12; // tighter core for giants
+        float glowR = vStarClass > 3.5 ? 0.55 : 0.45;  // wider glow for giants
+        float core = 1.0 - smoothstep(0.0, coreR, dist);
+        float glow = 1.0 - smoothstep(0.0, glowR, dist);
         float bloom = 1.0 - smoothstep(0.2, 0.5, dist);
 
-        // Diffraction cross for written stars (larger point size)
+        // Diffraction cross — stronger for bigger stars
         vec2 pc = gl_PointCoord - vec2(0.5);
-        float cross = max(0.0, 1.0 - abs(pc.x) * 10.0) * max(0.0, 1.0 - abs(pc.y) * 4.0)
-                    + max(0.0, 1.0 - abs(pc.y) * 10.0) * max(0.0, 1.0 - abs(pc.x) * 4.0);
-        cross *= 0.2;
+        float crossIntensity = vStarClass > 4.5 ? 0.35 : (vStarClass > 3.5 ? 0.25 : 0.2);
+        float crossNarrow = vStarClass > 3.5 ? 14.0 : 10.0;
+        float cross = max(0.0, 1.0 - abs(pc.x) * crossNarrow) * max(0.0, 1.0 - abs(pc.y) * 4.0)
+                    + max(0.0, 1.0 - abs(pc.y) * crossNarrow) * max(0.0, 1.0 - abs(pc.x) * 4.0);
+        cross *= crossIntensity;
+
+        // Giant/supergiant: add outer halo ring
+        float halo = 0.0;
+        if (vStarClass > 3.5) {
+          halo = smoothstep(0.3, 0.35, dist) * (1.0 - smoothstep(0.35, 0.5, dist)) * 0.15;
+        }
 
         vec3 color = vColor * (glow * 0.8 + core * 0.6) + vec3(1.0) * core * 0.4;
         color += vColor * cross * 0.5;
-        float alpha = vAlpha * (glow * 0.7 + core * 0.3 + bloom * 0.15 + cross * 0.1);
+        color += vColor * halo;
+        float alpha = vAlpha * (glow * 0.7 + core * 0.3 + bloom * 0.15 + cross * 0.1 + halo);
 
         gl_FragColor = vec4(color, alpha);
       }
@@ -884,6 +961,166 @@ function updateCoronas() {
       sprite.scale.setScalar((10 + (1 - fade) * 4) * breathe);
     }
   }
+
+  // Update nova bursts
+  updateNovaBursts();
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 3C: NOVA BURST (MILESTONE/SUPERGIANT ENTRIES)
+// ═══════════════════════════════════════════════════════════
+let novaBursts = [];
+
+function createNovaBurst(starIndex, colorHex) {
+  const position = starPositions[starIndex];
+  if (!position) return;
+
+  const particleCount = 40;
+  const positions = new Float32Array(particleCount * 3);
+  const velocities = [];
+  const color = new THREE.Color(colorHex);
+
+  for (let i = 0; i < particleCount; i++) {
+    positions[i * 3] = position.x;
+    positions[i * 3 + 1] = position.y;
+    positions[i * 3 + 2] = position.z;
+
+    // Random radial velocity
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const speed = 2 + Math.random() * 6;
+    velocities.push({
+      x: Math.sin(phi) * Math.cos(theta) * speed,
+      y: Math.sin(phi) * Math.sin(theta) * speed,
+      z: Math.cos(phi) * speed
+    });
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+  // Nova texture: bright white core
+  const cv = document.createElement('canvas');
+  cv.width = 32; cv.height = 32;
+  const ctx = cv.getContext('2d');
+  const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.3, `rgba(${Math.floor(color.r*255)},${Math.floor(color.g*255)},${Math.floor(color.b*255)},0.8)`);
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 32, 32);
+
+  const material = new THREE.PointsMaterial({
+    size: 2.5,
+    transparent: true,
+    opacity: 1.0,
+    map: new THREE.CanvasTexture(cv),
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    sizeAttenuation: true
+  });
+
+  const points = new THREE.Points(geometry, material);
+  scene.add(points);
+
+  novaBursts.push({
+    points,
+    velocities,
+    age: 0,
+    life: 3.0,
+    origin: position.clone()
+  });
+}
+
+function updateNovaBursts() {
+  const dt = 0.016; // approximate 60fps
+  for (let i = novaBursts.length - 1; i >= 0; i--) {
+    const burst = novaBursts[i];
+    burst.age += dt;
+
+    if (burst.age >= burst.life) {
+      scene.remove(burst.points);
+      burst.points.geometry.dispose();
+      burst.points.material.map.dispose();
+      burst.points.material.dispose();
+      novaBursts.splice(i, 1);
+      continue;
+    }
+
+    const progress = burst.age / burst.life;
+    const posArr = burst.points.geometry.attributes.position.array;
+
+    for (let j = 0; j < burst.velocities.length; j++) {
+      const v = burst.velocities[j];
+      // Decelerate over time
+      const decay = 1 - progress * 0.8;
+      posArr[j * 3] += v.x * dt * decay;
+      posArr[j * 3 + 1] += v.y * dt * decay;
+      posArr[j * 3 + 2] += v.z * dt * decay;
+    }
+
+    burst.points.geometry.attributes.position.needsUpdate = true;
+
+    // Fade out
+    burst.points.material.opacity = Math.max(0, 1 - progress * progress);
+    burst.points.material.size = 2.5 * (1 - progress * 0.5);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 3B: EMOTION PALETTE ENRICHMENT (12 EMOTIONS)
+// ═══════════════════════════════════════════════════════════
+// Maps valence/arousal pair to a richer spectral color.
+// Applied as a subtle tint on top of the DB-provided color.
+const EMOTION_PALETTE = {
+  // High valence, high arousal
+  joy:           '#FFD700',   // warm gold
+  surprise:      '#33CCCC',   // bright cyan
+
+  // High valence, low arousal
+  calm:          '#6699CC',   // cool blue
+  gratitude:     '#FFEECC',   // warm white
+  hope:          '#66CC99',   // spring green
+
+  // Low valence, high arousal
+  anger:         '#CC3333',   // deep red
+  anxiety:       '#CC8844',   // pale orange
+  fear:          '#663399',   // deep violet
+
+  // Low valence, low arousal
+  sadness:       '#4444AA',   // indigo
+  nostalgia:     '#CC9933',   // amber
+
+  // Neutral
+  love:          '#FF6699',   // soft rose
+  determination: '#4488AA',   // steel blue
+};
+
+function enrichStarColor(baseColorHex, valence, arousal) {
+  if (typeof valence !== 'number' || typeof arousal !== 'number') return baseColorHex;
+
+  // Map valence/arousal to closest emotion
+  let emotion;
+  if (valence > 0.3 && arousal > 0.5) emotion = 'joy';
+  else if (valence > 0.3 && arousal > 0.2) emotion = 'hope';
+  else if (valence > 0.3 && arousal < 0.2) emotion = 'calm';
+  else if (valence > 0 && arousal > 0.7) emotion = 'surprise';
+  else if (valence > 0 && arousal < 0.3) emotion = 'gratitude';
+  else if (valence < -0.3 && arousal > 0.5) emotion = 'anger';
+  else if (valence < -0.3 && arousal > 0.2) emotion = 'anxiety';
+  else if (valence < -0.3 && arousal < 0.2) emotion = 'sadness';
+  else if (valence < 0 && arousal > 0.5) emotion = 'fear';
+  else if (valence < 0 && arousal < 0.3) emotion = 'nostalgia';
+  else emotion = 'determination';
+
+  const emotionColor = EMOTION_PALETTE[emotion];
+  if (!emotionColor) return baseColorHex;
+
+  // Subtle tint: blend 20% of emotion color into base
+  const base = new THREE.Color(baseColorHex);
+  const tint = new THREE.Color(emotionColor);
+  base.lerp(tint, 0.2);
+  return '#' + base.getHexString();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1231,6 +1468,8 @@ function drawConstellations(constellationData, animate = false) {
         transparent: true,
         opacity: 0,
         linewidth: 1,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
       });
 
       const line = new THREE.Line(geo, mat);
@@ -1286,7 +1525,9 @@ async function loadData() {
     const idx = entry.day_of_year - 1; // 0-indexed
     if (idx < 0 || idx >= STAR_COUNT) continue;
 
-    const color = new THREE.Color(entry.star_color_hex);
+    // ── Phase 3B: Emotion palette enrichment ──
+    const enrichedHex = enrichStarColor(entry.star_color_hex, entry.valence, entry.arousal);
+    const color = new THREE.Color(enrichedHex);
 
     // ── Phase 9: Planck Shift / Redshift Aging ──
     // New entries keep their original color. Over months, colors shift
@@ -1308,9 +1549,24 @@ async function loadData() {
     colorsArr[idx * 3 + 1] = color.g;
     colorsArr[idx * 3 + 2] = color.b;
 
-    // Size scales with text length (capped)
+    // ── Phase 3A: Stellar Classification Curve ──
+    // Size and class based on text length
     const textLen = Math.min(entry.text.length, 2000);
-    sizesArr[idx] = WRITTEN_STAR_BASE_SIZE + (textLen / 500) * 3;
+    let starSize, starClassVal;
+    if (textLen < 100) {
+      starSize = 3.5; starClassVal = 1.0;        // dwarf
+    } else if (textLen < 300) {
+      starSize = 5.0 + (textLen - 100) / 200 * 1.5; starClassVal = 2.0;  // main sequence
+    } else if (textLen < 800) {
+      starSize = 6.5 + (textLen - 300) / 500 * 2.0; starClassVal = 3.0;  // subgiant
+    } else if (textLen < 2000) {
+      starSize = 8.5 + (textLen - 800) / 1200 * 2.0; starClassVal = 4.0; // giant
+    } else {
+      starSize = 10.5; starClassVal = 5.0;        // supergiant
+    }
+    sizesArr[idx] = starSize;
+    const starClassBuf = starPoints.geometry.attributes.starClass;
+    if (starClassBuf) starClassBuf.array[idx] = starClassVal;
 
     starData[idx] = entry;
 
@@ -1326,13 +1582,27 @@ async function loadData() {
       const wellIntensity = Math.min(1.0, (-valence + arousal) / 2);
       createGravityWell(idx, wellIntensity);
     }
+
+    // ── Meaning Layer: visual archetypes ──
+    if (window.MeaningObjects) {
+      const archetypes = window.MeaningObjects.classify(entry);
+      if (archetypes.length > 0) {
+        window.MeaningObjects.addMeaning(idx, starPositions[idx], archetypes, entry.star_color_hex);
+      }
+    }
   }
 
   // Phase 11: Semantic Filaments
   computeFilaments(entries);
 
+  // ── Meaning Layer: constellation threads (recurring emotions) ──
+  if (window.MeaningObjects) {
+    window.MeaningObjects.buildThreads(starData, starPositions);
+  }
+
   starPoints.geometry.attributes.color.needsUpdate = true;
   starPoints.geometry.attributes.size.needsUpdate = true;
+  if (starPoints.geometry.attributes.starClass) starPoints.geometry.attributes.starClass.needsUpdate = true;
 
   // Draw constellations (no animation on load)
   drawConstellations(constellations, false);
@@ -1345,98 +1615,7 @@ async function loadData() {
   updateNebulaClearMask();
 }
 
-// ═══════════════════════════════════════════════════════════
-// AUDIO ENGINE (Web Audio API)
-// ═══════════════════════════════════════════════════════════
-function initAudio() {
-  if (audioCtx) return;
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-}
-
-function playStarTone(temperatureK) {
-  if (!soundEnabled || !audioCtx) return;
-
-  // Map temperature to frequency: 3000K → 110Hz, 30000K → 880Hz (logarithmic)
-  const minTemp = 3000;
-  const maxTemp = 30000;
-  const minFreq = 110;
-  const maxFreq = 880;
-  const t = Math.log(temperatureK / minTemp) / Math.log(maxTemp / minTemp);
-  const freq = minFreq * Math.pow(maxFreq / minFreq, Math.max(0, Math.min(1, t)));
-
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-  gain.gain.setValueAtTime(0, audioCtx.currentTime);
-  gain.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.05);
-  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 2.0);
-
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-  osc.start(audioCtx.currentTime);
-  osc.stop(audioCtx.currentTime + 2.0);
-}
-
-function playTypewriterClick() {
-  if (!soundEnabled || !audioCtx) return;
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  osc.type = 'square';
-  osc.frequency.setValueAtTime(800 + Math.random() * 400, audioCtx.currentTime);
-  gain.gain.setValueAtTime(0.02, audioCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-  osc.start(audioCtx.currentTime);
-  osc.stop(audioCtx.currentTime + 0.05);
-}
-
-function playConstellationChime() {
-  if (!soundEnabled || !audioCtx) return;
-  const fundamental = 440;
-  [1, 5/4, 3/2].forEach((ratio, i) => {
-    setTimeout(() => {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(fundamental * ratio, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0, audioCtx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.05, audioCtx.currentTime + 0.1);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 3.0);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start(audioCtx.currentTime);
-      osc.stop(audioCtx.currentTime + 3.0);
-    }, i * 300);
-  });
-}
-
-// Ambient drone
-let ambientOscs = [];
-function startAmbient() {
-  if (!audioCtx) return;
-  const freqs = [55, 82.5, 110];
-  freqs.forEach(freq => {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-    gain.gain.setValueAtTime(0.015, audioCtx.currentTime);
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start();
-    ambientOscs.push({ osc, gain });
-  });
-}
-
-function stopAmbient() {
-  ambientOscs.forEach(({ osc, gain }) => {
-    gain.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime + 1);
-    osc.stop(audioCtx.currentTime + 1);
-  });
-  ambientOscs = [];
-}
+// Audio system extracted to audio-engine.js (AudioEngine module)
 
 // ═══════════════════════════════════════════════════════════
 // LONGEST NIGHT MODE
@@ -1478,7 +1657,7 @@ function activateLongestNight(prevEntries) {
   starPoints.geometry.attributes.size.needsUpdate = true;
 
   // Play chime
-  playConstellationChime();
+  if (window.AudioEngine) window.AudioEngine.playConstellationChime();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1542,8 +1721,64 @@ function onMouseMove(event) {
       }
     }
 
-    // Check planets
+    // Check planets — use celestial tracker if available
+    if (!foundReal && window.CelestialRenderer && window.CelestialRenderer.isVisible()) {
+      raycaster.setFromCamera(mouse, camera);
+      const hit = window.CelestialRenderer.hitTest(raycaster);
+      if (hit) {
+        tooltip.classList.remove('hidden');
+        if (hit.type === 'planet') {
+          tooltip.querySelector('.tooltip-name').textContent = hit.data.label || hit.data.name;
+          tooltip.querySelector('.tooltip-date').textContent = hit.data.dist !== undefined
+            ? `${hit.data.dist.toFixed(3)} AU`
+            : (hit.data.name === 'moon' ? `${(hit.data.dist * 149597870.7).toFixed(0)} km` : '');
+          const raStr = hit.data.ra !== undefined ? `RA ${hit.data.ra.toFixed(2)}h` : '';
+          const decStr = hit.data.dec !== undefined ? `Dec ${hit.data.dec.toFixed(1)}°` : '';
+          tooltip.querySelector('.tooltip-emotion').textContent = `${raStr} · ${decStr}`;
+        } else if (hit.type === 'iss') {
+          tooltip.querySelector('.tooltip-name').textContent = '🛰 ISS';
+          tooltip.querySelector('.tooltip-date').textContent = hit.data.lat !== undefined
+            ? `Lat ${hit.data.lat.toFixed(1)}° Lon ${hit.data.lon.toFixed(1)}°` : 'Low Earth Orbit';
+          tooltip.querySelector('.tooltip-emotion').textContent = `Alt: ${hit.data.altitude || 420} km · ${hit.data.velocity || 7.66} km/s`;
+        } else if (hit.type === 'sentry') {
+          tooltip.querySelector('.tooltip-name').textContent = `⚠ ${hit.data.name || hit.data.designation}`;
+          tooltip.querySelector('.tooltip-date').textContent = `Torino: ${hit.data.torino ?? 'N/A'} · Palermo: ${hit.data.palermo?.toFixed(2) || 'N/A'}`;
+          tooltip.querySelector('.tooltip-emotion').textContent = `Impact prob: ${hit.data.impactProb?.toExponential(2) || 'N/A'}${hit.data.diameter ? ` · Ø ${hit.data.diameter.toFixed(2)} km` : ''}`;
+        } else if (hit.type === 'neo') {
+          const d = hit.data;
+          const hazard = d.isPotentiallyHazardous ? '⚠ ' : '';
+          tooltip.querySelector('.tooltip-name').textContent = `${hazard}${d.name}`;
+          const missLD = d.missDistanceLunar != null ? `${d.missDistanceLunar.toFixed(1)} LD` : '';
+          const missKm = d.missDistanceKm != null ? `${(d.missDistanceKm / 1e6).toFixed(2)}M km` : '';
+          tooltip.querySelector('.tooltip-date').textContent = `Miss: ${missLD}${missLD && missKm ? ' · ' : ''}${missKm}`;
+          const vel = d.velocityKmS != null ? `${d.velocityKmS.toFixed(1)} km/s` : '';
+          const diam = (d.diameterMin != null && d.diameterMax != null)
+            ? `Ø ${Math.round(d.diameterMin)}-${Math.round(d.diameterMax)}m`
+            : '';
+          const dateStr = d.closeApproachDate ? ` · ${d.closeApproachDate}` : '';
+          tooltip.querySelector('.tooltip-emotion').textContent = `${vel}${vel && diam ? ' · ' : ''}${diam}${dateStr}`;
+        } else if (hit.type === 'dso') {
+          const d = hit.data;
+          const typeIcon = d.dsoType === 'nebula' ? '🌀' : d.dsoType === 'galaxy' ? '🌌' : '✨';
+          tooltip.querySelector('.tooltip-name').textContent = `${typeIcon} ${d.name}`;
+          tooltip.querySelector('.tooltip-date').textContent = `${d.id} · Mag ${d.magnitude} · ${d.dsoType}`;
+          tooltip.querySelector('.tooltip-emotion').textContent = d.description;
+        } else if (hit.type === 'meteor') {
+          const d = hit.data;
+          const peakStr = d.isNearPeak ? ' 🔥 ACTIVE NOW' : '';
+          tooltip.querySelector('.tooltip-name').textContent = `☄ ${d.name}${peakStr}`;
+          tooltip.querySelector('.tooltip-date').textContent = `Peak: ${d.peakDate} · ZHR: ${d.zhr} meteors/hr`;
+          tooltip.querySelector('.tooltip-emotion').textContent = `Parent: ${d.parent}`;
+        }
+        tooltip.style.left = `${event.clientX + 16}px`;
+        tooltip.style.top = `${event.clientY - 10}px`;
+        renderer.domElement.style.cursor = 'crosshair';
+        foundReal = true;
+      }
+    }
+
     if (!foundReal) {
+      // Legacy planet tooltip fallback
       for (const ps of planetSprites) {
         const screenPos = ps.position.clone().project(camera);
         const dx = (screenPos.x * 0.5 + 0.5) * window.innerWidth - event.clientX;
@@ -1574,6 +1809,21 @@ function onMouseClick(event) {
   if (isWritePanelOpen || isOverlayOpen || isDragging) return;
 
   raycaster.setFromCamera(mouse, camera);
+
+  // ── Check planet sprites first ──
+  if (window.CelestialRenderer && window.CelestialRenderer._getGroup()) {
+    const cGroup = window.CelestialRenderer._getGroup();
+    const planetHits = raycaster.intersectObjects(cGroup.children, true);
+    for (const hit of planetHits) {
+      let obj = hit.object;
+      while (obj && !obj.userData.type) obj = obj.parent;
+      if (obj && obj.userData.type === 'planet') {
+        showPlanetDetail(obj.userData.name);
+        return;
+      }
+    }
+  }
+
   const intersects = raycaster.intersectObject(starPoints);
 
   if (intersects.length > 0) {
@@ -1598,6 +1848,170 @@ function onMouseClick(event) {
       setTimeout(() => openWritePanel(dayOfYear), 600);
     }
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PLANET DETAIL — Real mission/probe/rover data
+// ═══════════════════════════════════════════════════════════
+const PLANET_DATA = {
+  sun: {
+    type: 'G2V Main Sequence Star',
+    diameter: '1,392,700 km',
+    distance: '1 AU (149.6M km)',
+    period: '—',
+    missions: [
+      'Parker Solar Probe — closest approach 6.16M km (2025)',
+      'Solar Orbiter (ESA) — polar observations',
+      'SDO — Solar Dynamics Observatory',
+      'SOHO — Solar and Heliospheric Observatory'
+    ],
+    fact: 'Parker Solar Probe became the fastest human-made object at 635,266 km/h.'
+  },
+  moon: {
+    type: 'Natural Satellite',
+    diameter: '3,474 km',
+    distance: '384,400 km',
+    period: '27.3 days',
+    missions: [
+      'Artemis III — crewed lunar landing (planned 2026)',
+      'VIPER — Volatiles Investigating Polar Exploration Rover',
+      'Chang\'e 6 — far-side sample return (2024)',
+      'Lunar Gateway — orbital station (under construction)',
+      'SLIM (JAXA) — precision lander (2024)'
+    ],
+    fact: 'Chang\'e 6 returned the first samples from the Moon\'s far side in June 2024.'
+  },
+  mercury: {
+    type: 'Terrestrial Planet',
+    diameter: '4,880 km',
+    distance: '0.39 AU',
+    period: '88 days',
+    missions: [
+      'BepiColombo (ESA/JAXA) — en route, arrival 2025',
+      'MESSENGER — mapped entire surface (2011-2015)'
+    ],
+    fact: 'MESSENGER discovered water ice in permanently shadowed craters at Mercury\'s poles.'
+  },
+  venus: {
+    type: 'Terrestrial Planet',
+    diameter: '12,104 km',
+    distance: '0.72 AU',
+    period: '225 days',
+    missions: [
+      'VERITAS (NASA) — orbital radar mapper (planned)',
+      'DAVINCI (NASA) — atmospheric descent probe (planned)',
+      'EnVision (ESA) — orbital study (planned 2031)',
+      'Akatsuki (JAXA) — atmospheric orbiter (active)'
+    ],
+    fact: 'Venus rotates backwards (retrograde) and a day on Venus is longer than its year.'
+  },
+  mars: {
+    type: 'Terrestrial Planet',
+    diameter: '6,779 km',
+    distance: '1.52 AU',
+    period: '687 days',
+    missions: [
+      'Perseverance Rover — Jezero Crater sample caching',
+      'Ingenuity Helicopter — 72 flights completed',
+      'Curiosity Rover — Gale Crater (12+ years active)',
+      'Mars Reconnaissance Orbiter — HiRISE imaging',
+      'MAVEN — upper atmosphere study',
+      'Tianwen-1 / Zhurong (CNSA) — Utopia Planitia',
+      'Mars Express (ESA) — orbital science (20+ years)'
+    ],
+    fact: 'Perseverance has cached 23 sample tubes for Earth return via Mars Sample Return mission.'
+  },
+  jupiter: {
+    type: 'Gas Giant',
+    diameter: '139,820 km',
+    distance: '5.20 AU',
+    period: '11.86 years',
+    missions: [
+      'Juno — polar orbiter, deep atmosphere mapping (active)',
+      'JUICE (ESA) — Jupiter Icy Moons Explorer (en route, arrival 2031)',
+      'Europa Clipper (NASA) — ice shell study (launched 2024)',
+      'Galileo — atmospheric probe + orbiter (1995-2003)'
+    ],
+    fact: 'Juno discovered that Jupiter\'s Great Red Spot extends 500 km into the atmosphere.'
+  },
+  saturn: {
+    type: 'Gas Giant',
+    diameter: '116,460 km',
+    distance: '9.54 AU',
+    period: '29.46 years',
+    missions: [
+      'Dragonfly — Titan rotorcraft lander (launch 2028)',
+      'Cassini-Huygens — 13 years of exploration (1997-2017)',
+      'Huygens — first landing on Titan (2005)'
+    ],
+    fact: 'Cassini discovered geysers on Enceladus erupting water ice, suggesting a subsurface ocean.'
+  },
+  uranus: {
+    type: 'Ice Giant',
+    diameter: '50,724 km',
+    distance: '19.19 AU',
+    period: '84.01 years',
+    missions: [
+      'Uranus Orbiter & Probe — #1 Decadal Survey priority (planned)',
+      'Voyager 2 — only flyby (1986)'
+    ],
+    fact: 'Uranus rotates on its side at 97.8° tilt — possibly from an ancient collision.'
+  },
+  neptune: {
+    type: 'Ice Giant',
+    diameter: '49,528 km',
+    distance: '30.07 AU',
+    period: '164.8 years',
+    missions: [
+      'Voyager 2 — only flyby (1989)',
+      'No active missions — next visit TBD'
+    ],
+    fact: 'Neptune has the fastest winds in the solar system — up to 2,100 km/h.'
+  },
+  pluto: {
+    type: 'Dwarf Planet',
+    diameter: '2,377 km',
+    distance: '39.48 AU',
+    period: '248 years',
+    missions: [
+      'New Horizons — flyby (2015), now in Kuiper Belt',
+    ],
+    fact: 'New Horizons revealed Pluto\'s heart-shaped nitrogen ice glacier, Sputnik Planitia.'
+  }
+};
+
+function showPlanetDetail(planetName) {
+  const data = PLANET_DATA[planetName];
+  if (!data) return;
+
+  const vis = window.OrbitalMechanics && window.OrbitalMechanics.PLANET_VISUALS[planetName];
+  const label = vis ? vis.label : planetName;
+
+  document.getElementById('planet-detail-name').textContent = label;
+  document.getElementById('planet-detail-type').textContent = data.type;
+
+  // Stats grid
+  const statsEl = document.getElementById('planet-detail-stats');
+  statsEl.innerHTML = [
+    `<div style="font-size:11px;color:rgba(180,180,210,0.4);">DIAMETER</div><div style="font-size:14px;color:#e0e0f0;">${data.diameter}</div>`,
+    `<div style="font-size:11px;color:rgba(180,180,210,0.4);">DISTANCE</div><div style="font-size:14px;color:#e0e0f0;">${data.distance}</div>`,
+    `<div style="font-size:11px;color:rgba(180,180,210,0.4);">ORBITAL PERIOD</div><div style="font-size:14px;color:#e0e0f0;">${data.period}</div>`,
+  ].join('');
+
+  // Mission list
+  const missionEl = document.getElementById('planet-detail-mission-list');
+  missionEl.innerHTML = data.missions.map(m => `<div style="padding:2px 0;">• ${m}</div>`).join('');
+
+  // Fact
+  document.getElementById('planet-detail-facts').textContent = data.fact;
+
+  // Show panel
+  document.getElementById('planet-detail-popup').classList.remove('hidden');
+
+  // Close handler
+  document.getElementById('planet-detail-close').onclick = () => {
+    document.getElementById('planet-detail-popup').classList.add('hidden');
+  };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1656,7 +2070,7 @@ function openEntryOverlay(entry) {
   });
 
   // Play star tone
-  playStarTone(entry.star_temperature_k);
+  if (window.AudioEngine) window.AudioEngine.playStarTone(entry.star_temperature_k);
 
   // Phase 10: Light Echo for old entries (>24h)
   const echoAge = Date.now() - new Date(entry.created_at).getTime();
@@ -1715,7 +2129,27 @@ async function saveEntry() {
   colorsArr[idx * 3] = color.r;
   colorsArr[idx * 3 + 1] = color.g;
   colorsArr[idx * 3 + 2] = color.b;
-  sizesArr[idx] = WRITTEN_STAR_BASE_SIZE + Math.min(text.length, 2000) / 500 * 3;
+
+  // ── Phase 3A: Stellar Classification on save ──
+  const textLen = Math.min(text.length, 2000);
+  let starSize, starClassVal;
+  if (textLen < 100) {
+    starSize = 3.5; starClassVal = 1.0;
+  } else if (textLen < 300) {
+    starSize = 5.0 + (textLen - 100) / 200 * 1.5; starClassVal = 2.0;
+  } else if (textLen < 800) {
+    starSize = 6.5 + (textLen - 300) / 500 * 2.0; starClassVal = 3.0;
+  } else if (textLen < 2000) {
+    starSize = 8.5 + (textLen - 800) / 1200 * 2.0; starClassVal = 4.0;
+  } else {
+    starSize = 10.5; starClassVal = 5.0;
+  }
+  sizesArr[idx] = starSize;
+  const starClassBuf = starPoints.geometry.attributes.starClass;
+  if (starClassBuf) {
+    starClassBuf.array[idx] = starClassVal;
+    starClassBuf.needsUpdate = true;
+  }
 
   starPoints.geometry.attributes.color.needsUpdate = true;
   starPoints.geometry.attributes.size.needsUpdate = true;
@@ -1725,8 +2159,13 @@ async function saveEntry() {
   // Add corona
   addCorona(idx, entry.star_color_hex);
 
+  // Phase 3C: Nova burst for giant/supergiant entries
+  if (starClassVal >= 4.0) {
+    createNovaBurst(idx, entry.star_color_hex);
+  }
+
   // Play star tone
-  playStarTone(entry.star_temperature_k);
+  if (window.AudioEngine) window.AudioEngine.playStarTone(entry.star_temperature_k);
 
   // Reload constellations
   entries = await window.journal.getAllEntries(currentYear);
@@ -1736,7 +2175,7 @@ async function saveEntry() {
   drawConstellations(constellations, constellations.length > hadPreviousConstellations);
 
   if (constellations.length > hadPreviousConstellations) {
-    playConstellationChime();
+    if (window.AudioEngine) window.AudioEngine.playConstellationChime();
   }
 
   closeWritePanel();
@@ -1843,7 +2282,7 @@ function setupEvents() {
   // Typewriter sounds
   document.getElementById('write-textarea').addEventListener('keydown', (e) => {
     if (document.getElementById('typewriter-checkbox').checked) {
-      playTypewriterClick();
+      if (window.AudioEngine) window.AudioEngine.playTypewriterClick();
     }
   });
 
@@ -1856,15 +2295,14 @@ function setupEvents() {
   document.getElementById('btn-maximize').addEventListener('click', () => window.journal.maximize());
   document.getElementById('btn-close').addEventListener('click', () => window.journal.close());
 
-  // Sound toggle
+  // Sound toggle — delegated to AudioEngine module
   document.getElementById('btn-sound-toggle').addEventListener('click', () => {
-    initAudio();
-    soundEnabled = !soundEnabled;
-    document.getElementById('btn-sound-toggle').textContent = soundEnabled ? '🔊' : '🔇';
-    if (soundEnabled) {
-      startAmbient();
-    } else {
-      stopAmbient();
+    if (window.AudioEngine) {
+      window.AudioEngine.init();
+      const nowEnabled = !window.AudioEngine.isEnabled();
+      window.AudioEngine.setEnabled(nowEnabled);
+      document.getElementById('btn-sound-toggle').textContent = nowEnabled ? '🔊' : '🔇';
+      if (nowEnabled) window.AudioEngine.startAmbient();
     }
   });
 
@@ -1875,10 +2313,122 @@ function setupEvents() {
     constBtn.addEventListener('click', toggleRealConstellations);
   }
 
+  // ── Celestial Tracker toggle ──
+  const celestialBtn = document.getElementById('btn-celestial-toggle');
+  const celestialInfoBtn = document.getElementById('btn-celestial-info');
+  const celestialPanel = document.getElementById('celestial-info-panel');
+
+  if (celestialBtn && window.CelestialRenderer) {
+    celestialBtn.addEventListener('click', () => {
+      const visible = !window.CelestialRenderer.isVisible();
+      window.CelestialRenderer.setVisible(visible);
+      celestialBtn.style.opacity = visible ? '1' : '0.5';
+      if (celestialInfoBtn) celestialInfoBtn.style.display = visible ? '' : 'none';
+      if (!visible && celestialPanel) celestialPanel.classList.add('hidden');
+    });
+  }
+
+  if (celestialInfoBtn && celestialPanel) {
+    celestialInfoBtn.addEventListener('click', () => {
+      celestialPanel.classList.toggle('hidden');
+      if (!celestialPanel.classList.contains('hidden')) updateCelestialInfoPanel();
+    });
+  }
+
+  // ── Layer toggle checkboxes ──
+  if (window.SkyLayerManager) {
+    const layerClasses = ['reference', 'celestial', 'personal', 'signal'];
+    for (const cls of layerClasses) {
+      const checkbox = document.getElementById(`layer-toggle-${cls}`);
+      if (checkbox) {
+        checkbox.addEventListener('change', (e) => {
+          window.SkyLayerManager.setClassVisible(cls, e.target.checked);
+          // Also sync the celestial renderer visibility for the celestial class
+          if (cls === 'celestial' && window.CelestialRenderer) {
+            window.CelestialRenderer.setVisible(e.target.checked);
+          }
+        });
+      }
+    }
+  }
+
+  // Info panel auto-refresh
+  setInterval(() => {
+    if (celestialPanel && !celestialPanel.classList.contains('hidden')) {
+      updateCelestialInfoPanel();
+      // Update layer stats
+      if (window.SkyLayerManager) {
+        const stats = window.SkyLayerManager.getStats();
+        const statsEl = document.getElementById('ci-layer-stats');
+        if (statsEl) {
+          statsEl.textContent = `${stats.visibleLayers}/${stats.totalLayers} layers visible · ${stats.totalObjects} objects tracked`;
+        }
+      }
+    }
+  }, 10000);
+
+  // ── Time Slider: Phase 5 ──
+  if (window.TimeEngine) {
+    const timeSlider = document.getElementById('time-slider');
+    const timeLiveBtn = document.getElementById('time-live-btn');
+    const timePlayBtn = document.getElementById('time-play-btn');
+    const timeSpeedBtn = document.getElementById('time-speed-btn');
+    const timeLabel = document.getElementById('time-label');
+
+    // Initialize label
+    if (timeLabel) timeLabel.textContent = window.TimeEngine.getLabel();
+    if (timeSlider) {
+      timeSlider.value = window.TimeEngine.getSliderValue();
+
+      timeSlider.addEventListener('mousedown', () => { timeSlider._userDragging = true; });
+      timeSlider.addEventListener('touchstart', () => { timeSlider._userDragging = true; });
+
+      timeSlider.addEventListener('input', () => {
+        const doy = parseInt(timeSlider.value);
+        window.TimeEngine.setDayOfYear(doy);
+        // Refresh meteor showers for the new date
+        if (window.MeteorRenderer) {
+          window.MeteorRenderer.refreshShowers(window.TimeEngine.getDate());
+        }
+      });
+
+      timeSlider.addEventListener('mouseup', () => { timeSlider._userDragging = false; });
+      timeSlider.addEventListener('touchend', () => { timeSlider._userDragging = false; });
+    }
+
+    if (timeLiveBtn) {
+      timeLiveBtn.addEventListener('click', () => {
+        window.TimeEngine.goLive();
+        if (window.MeteorRenderer) window.MeteorRenderer.refreshShowers();
+      });
+    }
+
+    if (timePlayBtn) {
+      timePlayBtn.addEventListener('click', () => {
+        const playing = window.TimeEngine.togglePlayPause();
+        timePlayBtn.textContent = playing ? '❚❚' : '▶';
+      });
+    }
+
+    if (timeSpeedBtn) {
+      timeSpeedBtn.addEventListener('click', () => {
+        const speed = window.TimeEngine.cycleSpeed();
+        timeSpeedBtn.textContent = `${speed}x`;
+      });
+    }
+
+    // Subscribe to time changes for meteor shower updates
+    window.TimeEngine.onTimeChange((ts, date) => {
+      if (window.MeteorRenderer) {
+        window.MeteorRenderer.refreshShowers(date);
+      }
+    });
+  }
+
   // Mouse wheel zoom
   renderer.domElement.addEventListener('wheel', (e) => {
     e.preventDefault();
-    spherical.radius = Math.max(40, Math.min(120, spherical.radius + e.deltaY * 0.05));
+    spherical.radius = Math.max(15, Math.min(120, spherical.radius + e.deltaY * 0.05));
     updateCameraFromSpherical();
   }, { passive: false });
 
@@ -2098,18 +2648,29 @@ function animate() {
   const dt = clock.getDelta();
   const elapsed = clock.elapsedTime;
 
-  // Update fly-to animation
-  updateFlyTo(dt);
+  // ── Error-guarded subsystem helper ──
+  // Each subsystem gets its own try/catch so one crash can't freeze the UI.
+  // Errors are logged once per subsystem to avoid flooding the console.
+  if (!animate._errorLogged) animate._errorLogged = new Set();
+  function guard(name, fn) {
+    try { fn(); }
+    catch (e) {
+      if (!animate._errorLogged.has(name)) {
+        console.error(`[animate:${name}] ${e.message}`, e);
+        animate._errorLogged.add(name);
+      }
+    }
+  }
 
-  // Update shader uniforms
-  starPoints.material.uniforms.uTime.value = elapsed;
-  if (nebulaUniforms) {
-    nebulaUniforms.uTime.value = elapsed;
-  }
-  // Update real star twinkle
-  if (window._bgStars && window._bgStars.userData.material) {
-    window._bgStars.userData.material.uniforms.uTime.value = elapsed;
-  }
+  guard('flyTo', () => updateFlyTo(dt));
+
+  guard('shaderUniforms', () => {
+    starPoints.material.uniforms.uTime.value = elapsed;
+    if (nebulaUniforms) nebulaUniforms.uTime.value = elapsed;
+    if (window._bgStars && window._bgStars.userData.material) {
+      window._bgStars.userData.material.uniforms.uTime.value = elapsed;
+    }
+  });
 
   // Slow auto-rotation (only when not dragging or flying)
   if (window._autoRotate && !isDragging && !targetSpherical) {
@@ -2123,24 +2684,55 @@ function animate() {
   }
 
   // Ambient brightness based on time — very subtle twilight shift
-  const now = new Date();
-  const hour = now.getHours();
-  let ambientBrightness = 0.0;
-  if (hour >= 6 && hour < 18) {
-    ambientBrightness = 0.012 * Math.sin(((hour - 6) / 12) * Math.PI);
-  }
-  scene.background.setRGB(
-    0.004 + ambientBrightness * 0.08,
-    0.004 + ambientBrightness * 0.10,
-    0.016 + ambientBrightness * 0.15
-  );
+  guard('ambientBrightness', () => {
+    const now = window.TimeEngine ? window.TimeEngine.getDate() : new Date();
+    const hour = now.getHours();
+    let ambientBrightness = 0.0;
+    if (hour >= 6 && hour < 18) {
+      ambientBrightness = 0.012 * Math.sin(((hour - 6) / 12) * Math.PI);
+    }
+    scene.background.setRGB(
+      0.004 + ambientBrightness * 0.08,
+      0.004 + ambientBrightness * 0.10,
+      0.016 + ambientBrightness * 0.15
+    );
+  });
 
-  // Update coronas + light echo + gravity wells + nebula + prophecy burst
-  updateCoronas();
-  updateLightEcho();
-  updateGravityWells(elapsed);
-  updateNebulaFog(elapsed);
-  updateProphecyBurst();
+  guard('coronas', () => updateCoronas());
+  guard('lightEcho', () => updateLightEcho());
+  guard('gravityWells', () => updateGravityWells(elapsed));
+  guard('nebulaFog', () => updateNebulaFog(elapsed));
+  guard('prophecyBurst', () => updateProphecyBurst());
+
+  // ── Celestial Tracker per-frame animation ──
+  guard('celestialRenderer', () => {
+    if (window.CelestialRenderer && window.CelestialRenderer.isVisible()) {
+      window.CelestialRenderer.update(dt);
+    }
+  });
+
+  // ── Meaning Objects animation ──
+  guard('meaningObjects', () => {
+    if (window.MeaningObjects) {
+      window.MeaningObjects.update(dt);
+    }
+  });
+
+  // ── Time Engine tick + slider UI ──
+  guard('timeEngine', () => {
+    if (window.TimeEngine) {
+      window.TimeEngine.tick(dt);
+      const state = window.TimeEngine.getState();
+      const slider = document.getElementById('time-slider');
+      const label = document.getElementById('time-label');
+      const liveBtn = document.getElementById('time-live-btn');
+      const playBtn = document.getElementById('time-play-btn');
+      if (slider && !slider._userDragging) slider.value = state.doy;
+      if (label) label.textContent = state.label;
+      if (liveBtn) liveBtn.style.background = state.isLive ? 'rgba(212,175,55,0.4)' : 'rgba(212,175,55,0.1)';
+      if (playBtn) playBtn.textContent = state.isPlaying ? '❚❚' : '▶';
+    }
+  });
 
   renderer.render(scene, camera);
 }
@@ -2243,18 +2835,9 @@ async function saveProphecy() {
   closeProphecyPanel();
 
   // Play a mystical chime
-  if (soundEnabled && audioCtx) {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(660, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(330, audioCtx.currentTime + 1.5);
-    gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 2);
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 2);
+  // Prophecy save chime
+  if (window.AudioEngine && window.AudioEngine.isEnabled()) {
+    window.AudioEngine.playStarTone(4500); // Low warm tone for prophecy
   }
 }
 
@@ -2460,7 +3043,7 @@ function createNebulaFog() {
     uTime: { value: 0 },
     uClearMask: { value: clearTex },
     uTotalStars: { value: STAR_COUNT },
-    uOpacity: { value: 0.06 },
+    uOpacity: { value: 0.14 },
   };
 
   const nebulaGeo = new THREE.SphereGeometry(SPHERE_RADIUS - 2, 64, 32);
@@ -2469,10 +3052,15 @@ function createNebulaFog() {
     vertexShader: `
       varying vec3 vWorldPos;
       varying vec2 vUv;
+      varying vec3 vNormal;
+      varying vec3 vViewDir;
       void main() {
         vWorldPos = position;
         vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vNormal = normalize(normalMatrix * normal);
+        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+        vViewDir = normalize(-mvPos.xyz);
+        gl_Position = projectionMatrix * mvPos;
       }
     `,
     fragmentShader: `
@@ -2482,6 +3070,8 @@ function createNebulaFog() {
       uniform float uOpacity;
       varying vec3 vWorldPos;
       varying vec2 vUv;
+      varying vec3 vNormal;
+      varying vec3 vViewDir;
 
       // 3D Perlin-style noise (simplex approximation)
       vec3 mod289(vec3 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
@@ -2533,6 +3123,10 @@ function createNebulaFog() {
       }
 
       void main() {
+        // Edge fade: use normal/view angle to softly dissolve sphere boundary
+        float edgeFade = abs(dot(vNormal, vViewDir));
+        edgeFade = smoothstep(0.0, 0.6, edgeFade); // fade near grazing angles
+
         // Map UV.x to star index, sample clear mask
         float starIdx = floor(vUv.x * uTotalStars);
         float cleared = texture2D(uClearMask, vec2((starIdx + 0.5) / uTotalStars, 0.5)).r;
@@ -2545,7 +3139,7 @@ function createNebulaFog() {
         n = clamp(n / 1.45, 0.0, 1.0);
 
         // Cleared areas have zero fog
-        float fogDensity = n * (1.0 - cleared) * uOpacity;
+        float fogDensity = n * (1.0 - cleared) * uOpacity * edgeFade;
 
         // Deep blue-purple fog color
         vec3 fogColor = vec3(0.10, 0.04, 0.18);
@@ -2591,4 +3185,75 @@ function updateNebulaClearMask() {
 // ═══════════════════════════════════════════════════════════
 // BOOT
 // ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// CELESTIAL TRACKER INFO PANEL UPDATE
+// ═══════════════════════════════════════════════════════════
+function updateCelestialInfoPanel() {
+  if (!window.CelestialTracker) return;
+  const summary = window.CelestialTracker.getSummary();
+
+  // Closest NEO
+  const neoEl = document.getElementById('ci-closest-neo');
+  if (neoEl && summary.closestNEO) {
+    const h = summary.closestNEO.hazardous ? ' ⚠ HAZARDOUS' : '';
+    neoEl.innerHTML = `<strong>${summary.closestNEO.name}</strong>${h}<br>` +
+      `${summary.closestNEO.distanceLunar} lunar distances<br>` +
+      `<span style="color:rgba(180,180,210,0.5);font-size:11px;">${summary.closestNEO.date}</span>`;
+  } else if (neoEl) {
+    neoEl.textContent = 'No close approaches in next 7 days';
+  }
+
+  // NEO count
+  const countEl = document.getElementById('ci-neo-count');
+  if (countEl) {
+    countEl.textContent = `${summary.neoCount} objects tracked · ${summary.hazardousCount} potentially hazardous`;
+  }
+
+  // Sentry
+  const sentryEl = document.getElementById('ci-sentry');
+  if (sentryEl) {
+    sentryEl.textContent = `${summary.sentryCount} objects on Sentry watch list`;
+  }
+
+  // Solar weather
+  const solarEl = document.getElementById('ci-solar');
+  if (solarEl) {
+    const sw = summary.solarWeather;
+    const parts = [];
+    if (sw.cmes > 0) parts.push(`${sw.cmes} CMEs`);
+    if (sw.flares > 0) parts.push(`${sw.flares} solar flares`);
+    if (sw.storms > 0) parts.push(`${sw.storms} geomagnetic storms (Kp ${sw.kpMax})`);
+    solarEl.textContent = parts.length > 0 ? parts.join(' · ') : 'Quiet — no active events';
+  }
+
+  // ISS
+  const issEl = document.getElementById('ci-iss');
+  if (issEl) {
+    if (summary.issVisible) {
+      issEl.textContent = `Lat ${summary.issLat.toFixed(1)}° · Lon ${summary.issLon.toFixed(1)}°`;
+    } else {
+      issEl.textContent = 'Position unavailable';
+    }
+  }
+
+  // Planets
+  const planetsEl = document.getElementById('ci-planets');
+  if (planetsEl) {
+    const planets = window.CelestialTracker.getPlanets();
+    if (planets && planets.length > 0) {
+      planetsEl.innerHTML = planets
+        .filter(p => p.name !== 'sun')
+        .map(p => {
+          const label = p.name.charAt(0).toUpperCase() + p.name.slice(1);
+          const dist = p.name === 'moon'
+            ? `${p.distKm ? p.distKm.toFixed(0) + ' km' : (p.dist * 149597870.7).toFixed(0) + ' km'}`
+            : `${p.dist.toFixed(2)} AU`;
+          return `<div style="display:flex;justify-content:space-between;padding:2px 0;">` +
+            `<span>${label}</span>` +
+            `<span style="color:rgba(180,180,210,0.5);font-size:12px;">RA ${p.ra.toFixed(1)}h · ${dist}</span></div>`;
+        }).join('');
+    }
+  }
+}
+
 init().catch(console.error);

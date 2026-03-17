@@ -441,7 +441,7 @@ html, body {
 /* ─── Write Trigger Button ─────────────────────────────── */
 #write-trigger-btn {
   position: fixed;
-  bottom: 24px;
+  bottom: 72px;
   left: 50%;
   transform: translateX(-50%);
   padding: 10px 28px;
@@ -551,9 +551,8 @@ html, body {
 /* ─── Calendar Info ────────────────────────────────────── */
 #calendar-info {
   position: fixed;
-  bottom: 70px;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: 52px;
+  left: 120px;
   display: flex;
   gap: 16px;
   z-index: 100;

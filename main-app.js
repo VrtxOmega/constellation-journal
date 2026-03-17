@@ -45,6 +45,11 @@ function createWindow() {
 function registerIPC() {
   // Save a journal entry
   ipcMain.handle('entry:save', (_event, { dayOfYear, year, text }) => {
+    // Domain validation (VERITAS Ω: bounded inputs)
+    if (!Number.isInteger(dayOfYear) || dayOfYear < 1 || dayOfYear > 366) throw new Error('DOMAIN_VIOLATION: dayOfYear');
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new Error('DOMAIN_VIOLATION: year');
+    if (!text || typeof text !== 'string' || text.length > 10000) throw new Error('DOMAIN_VIOLATION: text');
+
     const emotion = EmotionEngine.analyze(text);
     const starName = StarNamer.generate(emotion);
     const temperature = StarNamer.emotionToTemperature(emotion);
@@ -132,6 +137,20 @@ function registerIPC() {
   // ── Phase 14: Search (Shielded State) ──
   ipcMain.handle('entry:search', (_event, { year, query }) => {
     return store.searchEntries(year, query);
+  });
+
+  // ── WSPR live data (routed through main process to bypass CORS) ──
+  ipcMain.handle('wspr:fetchSpots', async (_event, { minutes }) => {
+    try {
+      const url = `https://www.wsprnet.org/drupal/wsprnet/spots/json?minutes=${minutes || 10}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) return { error: `API ${res.status}`, spots: [] };
+      const data = await res.json();
+      return { spots: Array.isArray(data) ? data : [] };
+    } catch (err) {
+      console.warn('[WSPR] Fetch failed:', err.message);
+      return { error: err.message, spots: [] };
+    }
   });
 }
 
