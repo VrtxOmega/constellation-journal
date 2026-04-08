@@ -1,4 +1,5 @@
 <div align="center">
+  <img src="https://raw.githubusercontent.com/VrtxOmega/Gravity-Omega/master/omega_icon.png" width="100" alt="VERITAS" />
   <h1>CONSTELLATION JOURNAL</h1>
   <p><strong>Your Year, Written in Stars</strong></p>
   <p><em>Local only. Nothing leaves your machine. Everything leaves a mark.</em></p>
