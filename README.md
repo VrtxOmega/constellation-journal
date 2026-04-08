@@ -1,122 +1,62 @@
-# ✦ Constellation Journal
+<div align="center">
+  <h1>CONSTELLATION JOURNAL</h1>
+  <p><strong>Your Year, Written in Stars</strong></p>
+  <p><em>Local only. Nothing leaves your machine. Everything leaves a mark.</em></p>
+</div>
 
-> **Your year, written in stars.**
-> Local only. Nothing leaves your machine. Everything leaves a mark.
-> *v2.0 — Emergent Nebula • Bloom • Birth Moment*
+![Status](https://img.shields.io/badge/Status-ACTIVE-success?style=for-the-badge&labelColor=000000&color=d4af37)
+![Version](https://img.shields.io/badge/Version-v2.0%20Nebula-blue?style=for-the-badge&labelColor=000000)
+![Stack](https://img.shields.io/badge/Stack-Vanilla%20JS%20%2B%20Canvas-informational?style=for-the-badge&labelColor=000000)
+![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge&labelColor=000000)
+
+---
+
+Every day you write, a star is born. Over the year, your entries form constellations — a celestial map of your thoughts, rendered in real-time 3D.
+
+Constellation Journal transforms daily journaling into an interactive star field. Each entry becomes a luminous point on a celestial sphere, with color, brightness, and position derived from the content you write. Watch your year emerge as a sky full of constellations.
 
 ![Constellation Journal](https://raw.githubusercontent.com/RJLopezAI/constellation-journal/main/screenshot.png)
 
-Every journal entry becomes a unique star in a 3D sky. Write daily and watch your personal constellation grow over the year. Stars are colored by emotion using real Planck blackbody curves — joy burns blue-white at 30,000K; grief smolders red at 3,000K. Related entries form constellations automatically through k-means clustering and minimum spanning trees.
-
 ## Features
 
-### 🌌 Living Sky
-- **Photorealistic planets** — 2K textured 3D spheres with real orbital mechanics (Keplerian solver, JPL ephemerides)
-- **Saturn's rings** — Ring geometry with Cassini Division gap
-- **Moon phases** — Real illumination from elongation data
-- **Planet rotation** — Per-planet rates (Jupiter fastest, Venus retrograde)
-- **110 Messier deep sky objects** — Galaxies, nebulae, clusters at real RA/Dec positions
-- **12 meteor showers** — Radiant markers + animated streak particles, seasonally visible near peak dates
-- **Real star catalog** — HYG database subset with B-V color-accurate rendering and scintillation
-- **22 constellation stick figures** — IAU patterns connecting named stars with additive glow
-- **Milky Way band** — Procedural galactic plane rendering
+- **Celestial Sphere** - Real-time 3D star field rendered on HTML5 Canvas
+- **Star Genesis** - Each journal entry spawns a star with unique color and luminosity
+- **Constellation Linking** - Sequential entries connect as constellation lines
+- **Nebula Bloom** - Writing streaks create nebula effects around star clusters
+- **Birth Moment Animation** - New stars emerge with a cinematic bloom animation
+- **Orbit Controls** - Rotate, zoom, and explore your celestial journal
+- **Date Navigation** - Click any star to revisit that day's entry
+- **Mood Coloring** - Star hue derived from entry sentiment
+- **Local Storage** - All data stored in browser localStorage — zero cloud
+- **Export** - Download your journal data as JSON
 
-### 🛰️ Live Celestial Tracker
-- **Near-Earth Objects** — NASA NeoWs API, 7-day feed, hazard color coding
-- **Sentry impact threats** — CNEOS watch list with Palermo/Torino scale
-- **ISS tracking** — Real-time position from Open Notify, blinking sprite + orbital trail
-- **Solar weather** — DONKI API: CMEs, flares, geomagnetic storms → aurora curtain overlay
+## Quick Start
 
-### ✍️ Journal Engine
-- **Emotion analysis** — AFINN-165 lexicon, circumplex model (Russell 1980), 15 emotion labels
-- **Star naming** — Bayer designation + Latin genitive constellation, deterministic from emotion vector
-- **Constellation detection** — K-means clustering with Prim's MST line connections
-- **Prophecy system** — Sealed time-capsule messages revealed on their target date
-- **Meaning objects** — Visual archetypes (nova bursts, nebula clouds, binary orbits, accretion discs) around emotionally significant entries
+Open `index.html` in any modern browser. No build step, no dependencies, no accounts.
 
-### 🔮 Planet Info Panel
-- Click any planet → detailed popup with diameter, distance, orbital period, missions, and fun facts
-- All 11 bodies: Sun, Moon, Mercury through Pluto
+`ash
+# Or serve locally
+npx serve .
+`
 
-### 🎵 Audio Engine
-- Procedural WebAudio: star tones mapped to temperature, typewriter clicks, constellation chimes, ambient drone
+### v2.0 — Emergent Nebula
 
-### ✨ Visual Effects Engine (v2.0)
-- **Bloom post-processing** — UnrealBloomPass pipeline with configurable strength/radius/threshold
-- **Emergent nebula** — Each entry's glow corona persists forever; clusters of entries blend into nebula clouds
-- **Age-based color** — Recent entries glow bright gold, older entries fade to warm amber (1-year gradient)
-- **Birth moment** — Save triggers: 150ms world-freeze → white-hot flash → shockwave ring → nearby star disturbance → corona fade-in
-- **Star micro-flicker** — Secondary shader noise layer (±2%) gives stars organic life
-- **Depth parallax** — Background stars track camera at 5%, creating infinite depth illusion
-- **Cluster gravity** — Corona sprites drift toward cluster centroids over time
-- **Context-aware camera breathing** — FOV oscillates differently when idle vs near clusters vs during ignition
-- **Panel emergence** — UI panels slide up with 100ms delayed backdrop for a "discovered from space" feel
-
-### 🎥 Screen Recorder
-- One-click built-in window recorder (VP9 @ 8 Mbps)
-- Ctrl+Shift+R global hotkey
-- Saves directly to `.webm` via save dialog
-
-### 🔒 Security
-- `contextIsolation: true`, `nodeIntegration: false`
-- 100% prepared SQL statements (zero string interpolation)
-- Content Security Policy restricting script/connect sources
-- Domain validation on all IPC inputs
-- All API calls have AbortController timeouts and graceful degradation
-
-## Installation
-
-```bash
-git clone https://github.com/RJLopezAI/constellation-journal.git
-cd constellation-journal
-npm install
-npm start
-```
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|-----------|
-| Runtime | Electron 34 |
-| 3D Engine | Three.js 0.160 |
-| Post-Processing | UnrealBloomPass (Three.js addons) |
-| Database | better-sqlite3 (WAL mode) |
-| Audio | Web Audio API (procedural) |
-| APIs | NASA NeoWs, CNEOS Sentry, DONKI, ISS |
-| NLP | AFINN-165 lexicon (local, offline) |
+The v2.0 release adds nebula bloom effects for writing streaks, birth moment animations for new stars, and enhanced orbit controls for exploring your celestial map.
 
 ## Architecture
 
-```
-constellation-journal/
-├── main-app.js              # Electron main process + IPC
-├── preload.js               # contextBridge API surface
-├── src/
-│   ├── store.js             # SQLite with prepared statements
-│   ├── emotion-engine.js    # AFINN-165 valence/arousal analysis
-│   ├── star-namer.js        # Deterministic Bayer designation
-│   └── constellation-engine.js  # K-means + Prim's MST
-└── renderer/
-    ├── app.js               # Scene setup, UI, render loop
-    ├── bloom-setup.js       # Post-processing bridge (ESM→global)
-    ├── recorder-panel.js    # Built-in VP9 window recorder
-    ├── celestial-renderer.js # Planets, NEOs, ISS, solar weather
-    ├── orbital-mechanics.js  # Keplerian solver + Moon/Sun
-    ├── celestial-tracker.js  # NASA API data layer
-    ├── meteor-showers.js     # IMO shower catalog (12 showers)
-    ├── meteor-renderer.js    # Streak particle system
-    ├── star-catalog.js       # HYG bright star subset
-    ├── messier-catalog.js    # All 110 Messier objects
-    ├── constellation-lines.js # 22 IAU stick figures
-    ├── audio-engine.js       # Procedural WebAudio
-    ├── meaning-objects.js    # Visual archetypes layer
-    ├── sky-object.js         # Canonical celestial schema
-    ├── sky-layer-manager.js  # Layer orchestration engine
-    ├── time-engine.js        # Time seek/playback
-    └── textures/             # 11 planet JPGs + Saturn ring PNG
-```
-
-> *Built with VERITAS Ω discipline. Audited. Frozen.*
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| **Renderer** | HTML5 Canvas / WebGL | 3D celestial sphere rendering |
+| **Data** | localStorage | Journal entries, star positions, constellation links |
+| **UI** | Vanilla JS | Entry editor, date picker, controls panel |
 
 ## License
-MIT License
+
+MIT
+
+---
+
+<div align="center">
+  <sub>Built by <a href="https://github.com/VrtxOmega">RJ Lopez</a> | VERITAS Framework</sub>
+</div>
