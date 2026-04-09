@@ -149,7 +149,7 @@ function registerIPC() {
       const data = await res.json();
       return { spots: Array.isArray(data) ? data : [] };
     } catch (err) {
-      console.warn('[WSPR] Fetch failed:', err.message);
+      console.warn('[WSPR] Fetch failed:', err);
       return { error: err.message, spots: [] };
     }
   });

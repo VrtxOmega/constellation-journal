@@ -1124,7 +1124,7 @@ const CelestialRenderer = (() => {
     // Planets do NOT twinkle — they are resolved discs.
     // Only point sources (stars) scintillate through Earth's atmosphere.
     } catch (e) {
-      console.warn('[CelestialRenderer] update error:', e.message);
+      console.warn('[CelestialRenderer] update error:', e);
     }
   }
 

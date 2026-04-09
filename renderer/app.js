@@ -2873,7 +2873,7 @@ function animate() {
     try { fn(); }
     catch (e) {
       if (!animate._errorLogged.has(name)) {
-        console.error(`[animate:${name}] Error:`, e.message);
+        console.error(`[animate:${name}] Error:`, e);
         animate._errorLogged.add(name);
       }
     }

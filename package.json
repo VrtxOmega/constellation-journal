@@ -9,7 +9,8 @@
     "rebuild": "npx @electron/rebuild",
     "postinstall": "electron-builder install-app-deps",
     "build": "electron-builder --win",
-    "test": "jest"
+    "test": "jest",
+    "lint": "eslint ."
   },
   "keywords": [
     "journal",

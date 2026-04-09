@@ -179,7 +179,7 @@ function computeMST(members, allEntries) {
       if (!inMST[v]) {
         const dv = members[u].valence - members[v].valence;
         const da = members[u].arousal - members[v].arousal;
-        const dist = dv * dv + da * da; // Squared distance is sufficient for ordering
+        const dist = Math.sqrt(dv * dv + da * da);
         if (dist < minEdge[v]) {
           minEdge[v] = dist;
           parent[v] = u;
