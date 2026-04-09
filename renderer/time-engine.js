@@ -147,7 +147,7 @@ const TimeEngine = (() => {
   function notifyListeners() {
     const d = new Date(currentTime);
     for (const fn of listeners) {
-      try { fn(currentTime, d); } catch (e) { console.warn('TimeEngine listener error:', e); }
+      try { fn(currentTime, d); } catch (e) { console.warn('TimeEngine listener error:', e.message); }
     }
   }
 

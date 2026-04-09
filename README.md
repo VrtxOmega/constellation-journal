@@ -42,7 +42,7 @@ npx serve .
 
 ### v2.0 — Emergent Nebula
 
-The v2.0 release adds nebula bloom effects for writing streaks, birth moment animations for new stars, and enhanced orbit controls for exploring your celestial map.
+The v2.0 release adds nebula bloom effects for writing streaks, birth moment animations for new stars, and enhanced orbit controls for exploring your celestial map. v2.0 includes performance optimizations and CI test hardening.
 
 ## Architecture
 

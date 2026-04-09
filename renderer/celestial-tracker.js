@@ -15,7 +15,7 @@ const CelestialTracker = (() => {
   'use strict';
 
   // ── Config ──
-  const NASA_API_KEY = 'DEMO_KEY'; // works without registration, 30 req/hr
+  const NASA_API_KEY = process.env.NASA_API_KEY || 'DEMO_KEY'; // works without registration, 30 req/hr
   const REFRESH_INTERVALS = {
     neos:     4 * 3600 * 1000,  // 4 hours
     sentry:  24 * 3600 * 1000,  // 24 hours

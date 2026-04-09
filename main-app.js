@@ -45,7 +45,7 @@ function createWindow() {
 // ─── IPC Handlers ──────────────────────────────────────────────
 function registerIPC() {
   // Save a journal entry
-  ipcMain.handle('entry:save', (_event, { dayOfYear, year, text }) => {
+  ipcMain.handle('entry:save', async (_event, { dayOfYear, year, text }) => {
     // Domain validation (VERITAS Ω: bounded inputs)
     if (!Number.isInteger(dayOfYear) || dayOfYear < 1 || dayOfYear > 366) throw new Error('DOMAIN_VIOLATION: dayOfYear');
     if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new Error('DOMAIN_VIOLATION: year');
@@ -56,7 +56,7 @@ function registerIPC() {
     const temperature = StarNamer.emotionToTemperature(emotion);
     const color = StarNamer.temperatureToHex(temperature);
 
-    const entry = store.saveEntry({
+    const entry = await store.saveEntry({
       dayOfYear,
       year,
       text,
@@ -72,7 +72,7 @@ function registerIPC() {
     const allEntries = store.getAllEntries(year);
     if (allEntries.length >= 3) {
       const constellations = ConstellationEngine.detect(allEntries);
-      store.saveConstellations(year, constellations);
+      await store.saveConstellations(year, constellations);
     }
 
     return entry;
@@ -89,13 +89,13 @@ function registerIPC() {
   });
 
   // Delete an entry
-  ipcMain.handle('entry:delete', (_event, { dayOfYear, year }) => {
-    store.deleteEntry(dayOfYear, year);
+  ipcMain.handle('entry:delete', async (_event, { dayOfYear, year }) => {
+    await store.deleteEntry(dayOfYear, year);
     // Recompute constellations
     const allEntries = store.getAllEntries(year);
     if (allEntries.length >= 3) {
       const constellations = ConstellationEngine.detect(allEntries);
-      store.saveConstellations(year, constellations);
+      await store.saveConstellations(year, constellations);
     }
     return { success: true };
   });
@@ -122,8 +122,8 @@ function registerIPC() {
   ipcMain.on('window:close', () => mainWindow?.close());
 
   // ── Phase 14: Prophecies (Shielded State) ──
-  ipcMain.handle('prophecy:save', (_event, { dayOfYear, year, text }) => {
-    return store.saveProphecy(dayOfYear, year, text);
+  ipcMain.handle('prophecy:save', async (_event, { dayOfYear, year, text }) => {
+    return await store.saveProphecy(dayOfYear, year, text);
   });
   ipcMain.handle('prophecy:get', (_event, { dayOfYear, year }) => {
     return store.getProphecy(dayOfYear, year);
@@ -131,8 +131,8 @@ function registerIPC() {
   ipcMain.handle('prophecy:getAll', (_event, { year }) => {
     return store.getAllProphecies(year);
   });
-  ipcMain.handle('prophecy:reveal', (_event, { dayOfYear, year }) => {
-    return store.revealProphecy(dayOfYear, year);
+  ipcMain.handle('prophecy:reveal', async (_event, { dayOfYear, year }) => {
+    return await store.revealProphecy(dayOfYear, year);
   });
 
   // ── Phase 14: Search (Shielded State) ──
@@ -177,7 +177,7 @@ function registerIPC() {
       filters: [{ name: 'Video', extensions: ['webm'] }]
     });
     if (!filePath) return { saved: false };
-    fs.writeFileSync(filePath, Buffer.from(buffer));
+    await fs.promises.writeFile(filePath, Buffer.from(buffer));
     return { saved: true, path: filePath };
   });
 }
@@ -195,14 +195,14 @@ app.whenReady().then(() => {
 
   // ── Phase 14: Midnight Prophecy Reveal Timer ──
   // Check every 60 seconds if any prophecies should be revealed
-  setInterval(() => {
+  setInterval(async () => {
     if (!store || !mainWindow) return;
     const now = new Date();
     const year = now.getFullYear();
     const doy = Math.floor((now - new Date(year, 0, 0)) / 86400000);
     const due = store.getUnrevealedDue(year, doy);
     for (const p of due) {
-      store.revealProphecy(p.day_of_year, p.year);
+      await store.revealProphecy(p.day_of_year, p.year);
       mainWindow.webContents.send('prophecy:revealed', p);
     }
   }, 60000);
