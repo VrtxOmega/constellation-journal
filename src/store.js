@@ -4,6 +4,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 const { app } = require('electron');
 
 class Store {
@@ -124,18 +125,27 @@ class Store {
     };
   }
 
-  // ── High Assurance: Auto-Backup ──
-  _backupDb() {
+  /**
+   * Backs up the database file to a .backup file
+   * @async
+   */
+  async _backupDb() {
     try {
       const backupPath = this.db.name + '.backup';
-      fs.copyFileSync(this.db.name, backupPath);
+      await fsPromises.copyFile(this.db.name, backupPath);
     } catch (err) {
       console.error("Critical: Failed to pre-backup WAL ledger.", err);
     }
   }
 
-  saveEntry({ dayOfYear, year, text, valence, arousal, label, starName, colorHex, temperatureK, embedding }) {
-    this._backupDb(); // Shielded State: Commit safe-point
+  /**
+   * Saves a new entry or updates an existing one for the given day and year.
+   * @param {Object} options - Entry details
+   * @returns {Object} The saved entry
+   * @async
+   */
+  async saveEntry({ dayOfYear, year, text, valence, arousal, label, starName, colorHex, temperatureK, embedding }) {
+    await this._backupDb(); // Shielded State: Commit safe-point
 
     const date = new Date();
     date.setFullYear(year);
@@ -169,13 +179,25 @@ class Store {
     return entries;
   }
 
-  deleteEntry(dayOfYear, year) {
-    this._backupDb(); // Shielded State: Commit safe-point
+  /**
+   * Deletes an entry for the given day and year.
+   * @param {number} dayOfYear
+   * @param {number} year
+   * @async
+   */
+  async deleteEntry(dayOfYear, year) {
+    await this._backupDb(); // Shielded State: Commit safe-point
     this._stmts.deleteEntry.run(dayOfYear, year);
   }
 
-  saveConstellations(year, constellations) {
-    this._backupDb(); // Shielded State: Commit safe-point
+  /**
+   * Replaces constellations for the given year.
+   * @param {number} year
+   * @param {Array} constellations
+   * @async
+   */
+  async saveConstellations(year, constellations) {
+    await this._backupDb(); // Shielded State: Commit safe-point
     const transaction = this.db.transaction((consts) => {
       this._stmts.deleteConstellations.run(year);
       for (const c of consts) {
@@ -199,13 +221,13 @@ class Store {
   }
 
   // ── Phase 14: Prophecies (Shielded State) ──
-  saveProphecy(dayOfYear, year, text) {
+  async saveProphecy(dayOfYear, year, text) {
     // Bounded domain: dayOfYear ∈ [1,365], year ∈ [2000,2100], text ≤ 10000 chars
     if (dayOfYear < 1 || dayOfYear > 365) throw new Error('DOMAIN_VIOLATION: dayOfYear');
     if (year < 2000 || year > 2100) throw new Error('DOMAIN_VIOLATION: year');
     if (!text || text.length > 10000) throw new Error('DOMAIN_VIOLATION: text');
 
-    this._backupDb(); // Shielded State: Commit safe-point
+    await this._backupDb(); // Shielded State: Commit safe-point
     this._stmts.insertProphecy.run(dayOfYear, year, text);
     return this.getProphecy(dayOfYear, year);
   }
@@ -218,8 +240,8 @@ class Store {
     return this._stmts.getAllProphecies.all(year);
   }
 
-  revealProphecy(dayOfYear, year) {
-    this._backupDb(); // Shielded State: Commit safe-point
+  async revealProphecy(dayOfYear, year) {
+    await this._backupDb(); // Shielded State: Commit safe-point
     this._stmts.revealProphecy.run(dayOfYear, year);
     return this.getProphecy(dayOfYear, year);
   }
@@ -229,6 +251,12 @@ class Store {
   }
 
   // ── Phase 14: Search (Shielded State) ──
+  /**
+   * Search entries for a specific year.
+   * @param {number} year
+   * @param {string} query
+   * @returns {Array} List of matching entries
+   */
   searchEntries(year, query) {
     if (!query || query.length > 500) return [];
     // Parameterized LIKE — no string interpolation

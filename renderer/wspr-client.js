@@ -155,7 +155,7 @@ const WSPRClient = (() => {
       if (onSpotsCallback) onSpotsCallback(spots);
       return spots;
     } catch (e) {
-      console.warn('[WSPRClient] Fetch failed:', e.message);
+      console.warn('[WSPRClient] Fetch failed:', e);
       return [];
     }
   }
