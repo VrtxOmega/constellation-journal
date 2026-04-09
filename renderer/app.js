@@ -1428,15 +1428,26 @@ function computeFilaments(entries) {
 
   const positions = [];
   
-  function cosineSimilarity(A, B) {
-    let dot = 0, normA = 0, normB = 0;
+  function cosineSimilarity(A, B, normA, normB) {
+    if (A.length !== B.length) return 0;
+    let dot = 0;
     for (let i = 0; i < A.length; i++) {
       dot += A[i] * B[i];
-      normA += A[i] * A[i];
-      normB += B[i] * B[i];
     }
     if (normA === 0 || normB === 0) return 0;
-    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    return dot / (normA * normB);
+  }
+
+  // Pre-calculate norms to save O(N^2) calculations
+  const norms = new Array(entries.length).fill(0);
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].embedding) {
+      let norm = 0;
+      for (let k = 0; k < entries[i].embedding.length; k++) {
+        norm += entries[i].embedding[k] * entries[i].embedding[k];
+      }
+      norms[i] = Math.sqrt(norm);
+    }
   }
 
   // Pairwise comparison
@@ -1445,7 +1456,7 @@ function computeFilaments(entries) {
       const e1 = entries[i];
       const e2 = entries[j];
       if (e1.embedding && e2.embedding) {
-        const sim = cosineSimilarity(e1.embedding, e2.embedding);
+        const sim = cosineSimilarity(e1.embedding, e2.embedding, norms[i], norms[j]);
         if (sim > 0.70) { // Similarity threshold
           const idx1 = e1.day_of_year - 1;
           const idx2 = e2.day_of_year - 1;
