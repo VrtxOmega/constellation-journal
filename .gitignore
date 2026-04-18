@@ -23,3 +23,7 @@ desktop.ini
 
 # Build artifacts
 *.asar
+
+*.bak
+*.bak.*
+renderer/textures/*_hires.jpg
