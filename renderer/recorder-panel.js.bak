@@ -27,7 +27,7 @@ const RecorderPanel = (() => {
       background:rgba(220,40,40,0.15);border:1px solid rgba(220,40,40,0.3);
       backdrop-filter:blur(8px);pointer-events:none;
     `;
-    indicatorEl.textContent = `
+    indicatorEl.innerHTML = `
       <span style="width:8px;height:8px;border-radius:50%;background:#ee4455;
         animation:recPulse 1s ease-in-out infinite;display:inline-block;"></span>
       <span id="rec-timer" style="font-family:monospace;color:#ee4455;font-size:12px;letter-spacing:1px;">00:00</span>

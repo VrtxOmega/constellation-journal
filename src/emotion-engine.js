@@ -227,4 +227,27 @@ function mapToLabel(valence, arousal) {
   return 'still';
 }
 
-module.exports = { analyze, mapToLabel, AFINN };
+/**
+ * Retrieve semantic embedding from local Ollama instance (Veritas Omnis / nomic-embed-text)
+ * @param {string} text - journal entry text
+ * @returns {Promise<Array<number>|null>} 768-d vector, or null if service is offline
+ */
+async function embedText(text) {
+  if (!text || typeof text !== 'string' || text.trim().length === 0) return null;
+  try {
+    const res = await fetch('http://localhost:11434/api/embeddings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'nomic-embed-text', prompt: text }),
+      signal: AbortSignal.timeout(10000)
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.embedding || null;
+  } catch (err) {
+    console.warn('[Ollama] Embedding failed:', err.message);
+    return null; // Graceful degradation to standard AFINN clustering
+  }
+}
+
+module.exports = { analyze, mapToLabel, AFINN, embedText };

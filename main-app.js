@@ -37,6 +37,10 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    console.log(`[Browser Console] ${message} (line ${line})`);
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -45,7 +49,7 @@ function createWindow() {
 // ─── IPC Handlers ──────────────────────────────────────────────
 function registerIPC() {
   // Save a journal entry
-  ipcMain.handle('entry:save', (_event, { dayOfYear, year, text }) => {
+  ipcMain.handle('entry:save', async (_event, { id, dayOfYear, year, text }) => {
     // Domain validation (VERITAS Ω: bounded inputs)
     if (!Number.isInteger(dayOfYear) || dayOfYear < 1 || dayOfYear > 366) throw new Error('DOMAIN_VIOLATION: dayOfYear');
     if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new Error('DOMAIN_VIOLATION: year');
@@ -55,8 +59,12 @@ function registerIPC() {
     const starName = StarNamer.generate(emotion);
     const temperature = StarNamer.emotionToTemperature(emotion);
     const color = StarNamer.temperatureToHex(temperature);
+    
+    // Fetch local Ollama semantic embedding
+    const embedding = await EmotionEngine.embedText(text);
 
     const entry = store.saveEntry({
+      id,
       dayOfYear,
       year,
       text,
@@ -65,7 +73,8 @@ function registerIPC() {
       label: emotion.label,
       starName,
       colorHex: color,
-      temperatureK: temperature
+      temperatureK: temperature,
+      embedding
     });
 
     // Recompute constellations
@@ -78,9 +87,45 @@ function registerIPC() {
     return entry;
   });
 
-  // Get a single entry
-  ipcMain.handle('entry:get', (_event, { dayOfYear, year }) => {
-    return store.getEntry(dayOfYear, year);
+  // Light Echo Semantic RAG system
+  ipcMain.handle('entry:lightEcho', async (_event, { year, text }) => {
+    if (!text || text.trim().length === 0) return [];
+    
+    const queryEmbedding = await EmotionEngine.embedText(text);
+    if (!queryEmbedding) return []; // Fallback gracefully if Ollama is down
+    
+    const allEntries = store.getAllEntries(year);
+    const matches = [];
+    
+    for (const entry of allEntries) {
+      if (entry.embedding) {
+        // Compute cosine similarity
+        let dotProduct = 0;
+        let normA = 0;
+        let normB = 0;
+        for (let i = 0; i < queryEmbedding.length; i++) {
+          dotProduct += queryEmbedding[i] * entry.embedding[i];
+          normA += queryEmbedding[i] * queryEmbedding[i];
+          normB += entry.embedding[i] * entry.embedding[i];
+        }
+        if (normA === 0 || normB === 0) continue;
+        const similarity = dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+        
+        // Threshold for a "Light Echo" semantic match
+        if (similarity > 0.45) {
+          matches.push({ dayOfYear: entry.day_of_year, similarity });
+        }
+      }
+    }
+    
+    // Return top 5 strongest semantic matches
+    matches.sort((a, b) => b.similarity - a.similarity);
+    return matches.slice(0, 5).map(m => m.dayOfYear);
+  });
+
+  // Get entries for a single day
+  ipcMain.handle('entry:getForDay', (_event, { dayOfYear, year }) => {
+    return store.getEntriesForDay(dayOfYear, year);
   });
 
   // Get all entries for a year
@@ -89,8 +134,8 @@ function registerIPC() {
   });
 
   // Delete an entry
-  ipcMain.handle('entry:delete', (_event, { dayOfYear, year }) => {
-    store.deleteEntry(dayOfYear, year);
+  ipcMain.handle('entry:delete', (_event, { id, year }) => {
+    store.deleteEntry(id);
     // Recompute constellations
     const allEntries = store.getAllEntries(year);
     if (allEntries.length >= 3) {
@@ -183,6 +228,12 @@ function registerIPC() {
 }
 
 // ─── App Lifecycle ─────────────────────────────────────────────
+const userDataPath = path.join(app.getPath('appData'), 'ConstellationJournal');
+if (!fs.existsSync(userDataPath)) {
+  fs.mkdirSync(userDataPath, { recursive: true });
+}
+app.setPath('userData', userDataPath);
+
 app.whenReady().then(() => {
   store = new Store();
   registerIPC();

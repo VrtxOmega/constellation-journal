@@ -174,6 +174,18 @@ const CelestialRenderer = (() => {
     celestialGroup.name = 'celestialTracker';
     scene.add(celestialGroup);
 
+    // ── Lighting for planet shading ──
+    // Hemisphere light: warm sunlit side vs cool space fill
+    const hemiLight = new THREE.HemisphereLight(0xFFEECC, 0x667788, 1.0);
+    celestialGroup.add(hemiLight);
+
+    // Directional light replaced with PointLight perfectly positioned at the Sun 
+    // to radiate light physically correctly to all other planets.
+    const sunLight = new THREE.PointLight(0xFFEEDD, 1.8, 0, 0); // High intensity, no falloff limit
+    sunLight.position.set(0, 0, 0); // updated per-frame to Sun position
+    celestialGroup.add(sunLight);
+    celestialGroup._sunLight = sunLight;
+
     createPlanetSprites();
     createNEOLayer();
     createISSLayer();
@@ -208,17 +220,17 @@ const CelestialRenderer = (() => {
   // ═══════════════════════════════════════════════════════════
 
   const PLANET_TEXTURES = {
-    jupiter: 'textures/jupiter.jpg',
-    saturn: 'textures/saturn.jpg',
-    mars: 'textures/mars.jpg',
-    moon: 'textures/moon.jpg',
-    sun: 'textures/sun.jpg',
-    venus: 'textures/venus.jpg',
-    neptune: 'textures/neptune.jpg',
-    uranus: 'textures/uranus.jpg',
-    earth: 'textures/earth.jpg',
-    mercury: 'textures/moon.jpg',
-    pluto: 'textures/pluto.jpg',
+    jupiter: 'textures/jupiter_hires.jpg',
+    saturn: 'textures/saturn_hires.jpg',
+    mars: 'textures/mars_hires.jpg',
+    moon: 'textures/moon_hires.jpg',
+    sun: 'textures/sun_hires.jpg',
+    venus: 'textures/venus_hires.jpg',
+    neptune: 'textures/neptune_hires.jpg',
+    uranus: 'textures/uranus_hires.jpg',
+    earth: 'textures/earth_hires.jpg',
+    mercury: 'textures/mercury_hires.jpg',
+    pluto: 'textures/pluto.jpg',  // no 8K Pluto available, keep original
   };
 
   function createPlanetSprites() {
@@ -228,42 +240,76 @@ const CelestialRenderer = (() => {
 
     for (const [name, vis] of Object.entries(visuals)) {
       const group = new THREE.Group();
-      group.userData = { type: 'planet', name: name, label: vis.label };
 
-      // ── Glow halo sprite (AdditiveBlending glow envelope) ──
-      const haloTex = createPlanetHaloTexture(256, vis.color, vis.glow);
+      // ── Glow halo sprite ──
+      const haloTex = createPlanetHaloTexture(128, vis.color, vis.glow);
       const haloMat = new THREE.SpriteMaterial({
         map: haloTex,
         transparent: true,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
-        opacity: 0.35
+        opacity: Math.min(1.0, vis.glow + 0.5)
       });
       const haloSprite = new THREE.Sprite(haloMat);
-      haloSprite.scale.set(vis.size * 1.6, vis.size * 1.6, 1);
+      
+      // Store references in userData for dynamic LOD updates
+      group.userData = { 
+        type: 'planet', 
+        name: name, 
+        label: vis.label,
+        halo: haloSprite,
+        baseSize: vis.size,
+        baseGlow: vis.glow
+      };
+      
       group.add(haloSprite);
 
       // ── 3D Sphere mesh with real photographic texture ──
-      const sphereRadius = vis.size * 0.28;
-      const segments = name === 'sun' ? 48 : 32;
+      const sphereRadius = vis.size * 0.45;
+      const segments = 128; // Increased from 64 to 128 for smoother terminator shadows
       const geometry = new THREE.SphereGeometry(sphereRadius, segments, segments);
 
-      const meshMat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(vis.color),
-        transparent: false,
-        depthWrite: true,
-      });
+      // ── The Sun is emissive and uses MeshBasicMaterial ──
+      // ── Planets use MeshStandardMaterial to receive dynamic light from the Sun ──
+      const isSun = (name === 'sun');
+      let meshMat;
+      if (isSun) {
+        meshMat = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(vis.color),
+          transparent: false,
+          depthWrite: true,
+        });
+      } else {
+        meshMat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(vis.color),
+          roughness: 0.8,
+          metalness: 0.1,
+          transparent: false,
+          depthWrite: true,
+        });
+      }
       const mesh = new THREE.Mesh(geometry, meshMat);
 
-      // Load real photographic texture
+      // Load real photographic texture with anisotropic filtering
       const texPath = PLANET_TEXTURES[name];
       if (texPath) {
-        loader.load(texPath, (tex) => {
-          tex.colorSpace = THREE.SRGBColorSpace;
-          meshMat.map = tex;
-          meshMat.color.set(0xffffff);
-          meshMat.needsUpdate = true;
-        });
+        loader.load(
+          texPath, 
+          (tex) => {
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.minFilter = THREE.LinearMipmapLinearFilter;
+            tex.magFilter = THREE.LinearFilter;
+            tex.anisotropy = 16;
+            tex.generateMipmaps = true;
+            meshMat.map = tex;
+            meshMat.color.set(0xffffff); // neutral tint so texture shows true color
+            meshMat.needsUpdate = true;
+          },
+          undefined,
+          (err) => {
+            console.error(`Error loading texture ${texPath}:`, err);
+          }
+        );
       }
       mesh.renderOrder = 2;
       group.add(mesh);
@@ -272,7 +318,7 @@ const CelestialRenderer = (() => {
       if (name === 'saturn') {
         const innerR = sphereRadius * 1.25;
         const outerR = sphereRadius * 2.2;
-        const ringGeo = new THREE.RingGeometry(innerR, outerR, 64);
+        const ringGeo = new THREE.RingGeometry(innerR, outerR, 128);
         // Fix UVs for radial mapping
         const pos = ringGeo.attributes.position;
         const uv = ringGeo.attributes.uv;
@@ -395,9 +441,9 @@ const CelestialRenderer = (() => {
       // Nebulae: diffuse fuzzy glow. Galaxies: tighter oval. Clusters: scattered dots.
       if (dso.type === 'nebula') {
         const grad = ctx.createRadialGradient(center, center, 0, center, center, center);
-        grad.addColorStop(0, `rgba(${cr},${cg},${cb},0.5)`);
-        grad.addColorStop(0.3, `rgba(${cr},${cg},${cb},0.2)`);
-        grad.addColorStop(0.6, `rgba(${cr},${cg},${cb},0.05)`);
+        grad.addColorStop(0, `rgba(${cr},${cg},${cb},0.8)`);
+        grad.addColorStop(0.2, `rgba(${cr},${cg},${cb},0.4)`);
+        grad.addColorStop(0.5, `rgba(${cr},${cg},${cb},0.1)`);
         grad.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, 64, 64);
@@ -406,17 +452,17 @@ const CelestialRenderer = (() => {
         ctx.translate(center, center);
         ctx.scale(1, 0.6); // elliptical
         const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, center);
-        grad.addColorStop(0, `rgba(${Math.min(255,cr+40)},${Math.min(255,cg+30)},${Math.min(255,cb+20)},0.6)`);
-        grad.addColorStop(0.2, `rgba(${cr},${cg},${cb},0.3)`);
-        grad.addColorStop(0.5, `rgba(${cr},${cg},${cb},0.08)`);
+        grad.addColorStop(0, `rgba(${Math.min(255,cr+60)},${Math.min(255,cg+50)},${Math.min(255,cb+40)},0.9)`);
+        grad.addColorStop(0.15, `rgba(${cr},${cg},${cb},0.5)`);
+        grad.addColorStop(0.4, `rgba(${cr},${cg},${cb},0.15)`);
         grad.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = grad;
         ctx.fillRect(-center, -center * 2, 64, 64 * 2);
         ctx.restore();
       } else { // cluster
         const grad = ctx.createRadialGradient(center, center, 0, center, center, center * 0.7);
-        grad.addColorStop(0, `rgba(${cr},${cg},${cb},0.4)`);
-        grad.addColorStop(0.5, `rgba(${cr},${cg},${cb},0.15)`);
+        grad.addColorStop(0, `rgba(${cr},${cg},${cb},0.6)`);
+        grad.addColorStop(0.4, `rgba(${cr},${cg},${cb},0.2)`);
         grad.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, 64, 64);
@@ -425,8 +471,8 @@ const CelestialRenderer = (() => {
           const sx = center + (Math.random() - 0.5) * 30;
           const sy = center + (Math.random() - 0.5) * 30;
           ctx.beginPath();
-          ctx.arc(sx, sy, 0.5 + Math.random(), 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${cr},${cg},${cb},${0.3 + Math.random() * 0.4})`;
+          ctx.arc(sx, sy, 0.4 + Math.random(), 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(${Math.min(255,cr+50)},${Math.min(255,cg+50)},${Math.min(255,cb+50)},${0.5 + Math.random() * 0.5})`;
           ctx.fill();
         }
       }
@@ -437,7 +483,7 @@ const CelestialRenderer = (() => {
       const mat = new THREE.SpriteMaterial({
         map: tex,
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.75, // boosted slightly for tightening effect
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       });
@@ -452,10 +498,35 @@ const CelestialRenderer = (() => {
         dsoType: dso.type,
         magnitude: dso.mag,
         description: dso.desc,
+        baseSize: dso.size // save base size for dynamic LOD scaling
       };
 
       celestialGroup.add(sprite);
       deepSkySprites.push(sprite);
+    }
+  }
+
+  function updateDSOs() {
+    if (!deepSkySprites || deepSkySprites.length === 0 || !camera) return;
+
+    for (const sprite of deepSkySprites) {
+      const dist = camera.position.distanceTo(sprite.position);
+      
+      // Dynamic LOD Scaling for DSOs
+      // Goal: At 1x zoom (dist ~35), shrink/tighten them so they don't smear.
+      // We scale them linearly with distance so they maintain roughly constant visual size
+      // on screen, behaving like distant objects at infinity rather than massive blurry clouds.
+      
+      // Base scale was originally set directly as `dso.size`. Let's assume standard viewing distance is 20.
+      const scaleFactor = Math.max(0.3, dist / 25.0); 
+      // If dist=35 (mid-range), scale drops relative to the massive size they used to be at that dist.
+      
+      const newSize = sprite.userData.baseSize * scaleFactor * 0.6; // 0.6 tightens everything inherently
+      sprite.scale.set(newSize, newSize, 1);
+
+      // Fade out slightly when extremely close so you can focus on planets, but remain visible
+      let targetOp = Math.min(1.0, dist / 15.0) * 0.8;
+      sprite.material.opacity = targetOp;
     }
   }
 
@@ -535,6 +606,7 @@ const CelestialRenderer = (() => {
   }
 
 
+
   function updatePlanets(planetData) {
     if (!planetData || !window.OrbitalMechanics) return;
 
@@ -550,15 +622,57 @@ const CelestialRenderer = (() => {
       } else if (p.name === 'moon') {
         r = SPHERE_RADIUS - 2;
       } else {
-        // Use log of distance (AU) to spread planets apart
-        // Inner planets (~0.5-2 AU) → offset ~0, outer planets (~10-30 AU) → offset ~5
+        // Use log of distance (AU) to spread planets apart more aggressively
+        // Inner planets (~0.5-2 AU) → offset ~0-2, outer planets (~10-30 AU) → offset ~7-10
         const distAU = p.dist || 1;
-        const depthOffset = Math.log10(Math.max(1, distAU)) * 3.5;
+        const depthOffset = Math.log10(Math.max(1, distAU)) * 7.0;
         r = SPHERE_RADIUS + depthOffset;
       }
       const pos = window.OrbitalMechanics.raDec2Cartesian(p.ra, p.dec, r);
       sprite.position.set(pos.x, pos.y, pos.z);
       sprite.visible = true;
+
+      // Dynamic LOD for Halo & Mesh
+      if (sprite.userData && sprite.userData.halo) {
+        // Distance from camera to planet
+        let dist = 100;
+        if (typeof camera !== 'undefined' && camera.position) {
+          dist = camera.position.distanceTo(sprite.position);
+        }
+        
+        const halo = sprite.userData.halo;
+        const baseSize = sprite.userData.baseSize;
+        const glowMult = sprite.userData.baseGlow || 0;
+
+        // t interpolates from 0.0 (close up, dist <= 10) to 1.0 (mid/far range, dist >= 35)
+        const t = Math.max(0, Math.min(1.0, (dist - 10) / 25.0));
+
+        // Opacity: starts high (e.g. 80% for atmospheric rim) and drops to 30% at mid-range
+        // to prevent blooming the planet edge and washing out rings.
+        const maxOp = 0.4 + glowMult * 0.4; // up to 0.8
+        let targetOpacity = maxOp + (0.25 - maxOp) * t; 
+        halo.material.opacity = targetOpacity;
+
+        // Scale: Starts wide (atmospheric scattering) and pulls in tight (2.2x radius) at mid-range
+        const scaleMult = 3.6 + (2.1 - 3.6) * t; 
+        const dynamicScale = baseSize * 0.45 * scaleMult;
+        halo.scale.set(dynamicScale, dynamicScale, 1);
+        
+        // Hide if fully transparent
+        halo.visible = targetOpacity > 0.01;
+      }
+
+      // Apply continuous rotation based on actual elapsed real-world time or a simple accumulator
+      const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (sprite._mesh && window.OrbitalMechanics && window.OrbitalMechanics.PLANET_VISUALS[p.name]) {
+        const speed = window.OrbitalMechanics.PLANET_VISUALS[p.name].rotSpeed || 0;
+        sprite._mesh.rotation.y = (nowMs / 1000) * speed;
+      }
+
+      // Update directional light to track Sun position
+      if (p.name === 'sun' && celestialGroup._sunLight) {
+        celestialGroup._sunLight.position.set(pos.x, pos.y, pos.z);
+      }
 
       // Store data for tooltip
       sprite.userData.ra = p.ra;
@@ -566,71 +680,7 @@ const CelestialRenderer = (() => {
       sprite.userData.dist = p.dist;
       if (p.illumination !== undefined) sprite.userData.illumination = p.illumination;
 
-      // ── Moon phase shadow ──
-      if (p.name === 'moon' && p.illumination !== undefined) {
-        // Create or update phase shadow overlay
-        if (!sprite._phaseShadow) {
-          const shadowCanvas = document.createElement('canvas');
-          shadowCanvas.width = 128; shadowCanvas.height = 128;
-          const shadowTex = new THREE.CanvasTexture(shadowCanvas);
-          const shadowMat = new THREE.SpriteMaterial({
-            map: shadowTex,
-            transparent: true,
-            depthWrite: false,
-            opacity: 0.85,
-          });
-          const shadowSprite = new THREE.Sprite(shadowMat);
-          shadowSprite.renderOrder = 4;
-          sprite.add(shadowSprite);
-          sprite._phaseShadow = shadowSprite;
-          sprite._phaseCanvas = shadowCanvas;
-        }
-        // Draw phase shadow — illumination 0=new moon, 1=full moon
-        const illum = p.illumination / 100; // convert from percentage
-        const pc = sprite._phaseCanvas;
-        const pctx = pc.getContext('2d');
-        const s = pc.width;
-        const center = s / 2;
-        pctx.clearRect(0, 0, s, s);
-
-        if (illum < 0.98) {
-          // Draw shadow circle then cut out lit portion
-          pctx.save();
-          // Clip to circle
-          pctx.beginPath();
-          pctx.arc(center, center, center - 2, 0, Math.PI * 2);
-          pctx.clip();
-
-          // Fill all with shadow
-          pctx.fillStyle = 'rgba(0,0,0,0.88)';
-          pctx.fillRect(0, 0, s, s);
-
-          // Cut out the lit crescent
-          pctx.globalCompositeOperation = 'destination-out';
-          pctx.beginPath();
-          // The lit portion is an ellipse whose width depends on illumination
-          // At illum=0.5, half-moon => flat line. At illum=1, full circle. At illum=0, nothing.
-          const litW = Math.abs(illum * 2 - 1) * center;
-          const litX = illum > 0.5 ? center - (1 - illum) * s : center + illum * s * 0.5;
-          if (illum > 0.5) {
-            // Waxing gibbous — illuminate most, shadow is crescent on right
-            pctx.ellipse(center, center, center - 2, center - 2, 0, -Math.PI / 2, Math.PI / 2);
-            pctx.ellipse(center, center, litW, center - 2, 0, Math.PI / 2, -Math.PI / 2);
-          } else {
-            // Waxing crescent — shadow covers most, lit crescent on right
-            pctx.ellipse(center, center, center - 2, center - 2, 0, -Math.PI / 2, Math.PI / 2);
-            pctx.ellipse(center, center, litW, center - 2, 0, Math.PI / 2, -Math.PI / 2, true);
-          }
-          pctx.closePath();
-          pctx.fill();
-          pctx.restore();
-        }
-
-        sprite._phaseShadow.material.map.needsUpdate = true;
-        // Scale shadow to match mesh
-        const meshScale = sprite._disc ? sprite._disc.scale.x * 3.6 : 2;
-        sprite._phaseShadow.scale.set(meshScale, meshScale, 1);
-      }
+      // True 3D phase shadows are now handled by MeshStandardMaterial and the directional sunLight.
     }
   }
 
@@ -1054,33 +1104,31 @@ const CelestialRenderer = (() => {
 
         // Halo sprite: large & bright far, small & faint close
         const haloScale = lerp(1.15, 1.9, t) * base;
-        const haloOpacity = lerp(0.10, 0.35, t);
+        const haloOpacity = lerp(0.10, 0.25, t);
 
         // For sphere mesh, scale uniformly (not 2D like sprites)
-        const mScale = meshScale * 0.28 / (base * 0.28); // normalize to unit sphere
+        const mScale = meshScale * 0.45 / (base * 0.45); // normalize to unit sphere
         group._disc.scale.set(mScale, mScale, mScale);
 
         // Saturn: wider for ring visibility
         if (name === 'saturn') {
-          const saturnScale = lerp(1.6, 0.7, t) * base * 0.28 / (base * 0.28);
+          const saturnScale = lerp(1.6, 0.7, t) * base * 0.45 / (base * 0.45);
           group._disc.scale.set(saturnScale, saturnScale, saturnScale);
         }
 
         group._halo.scale.set(haloScale, haloScale, 1);
         group._halo.material.opacity = haloOpacity;
 
-        // ── Planet rotation — each planet spins at its own rate ──
-        const ROTATION_RATES = {
-          mercury: 0.002, venus: -0.001, earth: 0.015, mars: 0.014,
-          jupiter: 0.035, saturn: 0.030, uranus: -0.025, neptune: 0.028,
-          pluto: 0.004, moon: 0.005, sun: 0.003
-        };
-        const rate = ROTATION_RATES[name] || 0.01;
+        // ── Planet rotation — use rotSpeed from PLANET_VISUALS ──
+        const vis = window.OrbitalMechanics && window.OrbitalMechanics.PLANET_VISUALS[name];
+        const rate = vis && vis.rotSpeed !== undefined ? vis.rotSpeed : 0.01;
         group._disc.rotation.y += rate * dt;
       }
     }
 
     // ── Subtle NEO pulse ──
+    updateDSOs();
+    
     if (neoPoints && neoData.length > 0) {
       const pulse = 0.45 + Math.sin(elapsedTime * 1.5) * 0.15;
       neoPoints.material.opacity = pulse;

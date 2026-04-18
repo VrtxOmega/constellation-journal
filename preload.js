@@ -5,14 +5,16 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('journal', {
   // Entry CRUD
-  saveEntry: (dayOfYear, year, text) =>
-    ipcRenderer.invoke('entry:save', { dayOfYear, year, text }),
-  getEntry: (dayOfYear, year) =>
-    ipcRenderer.invoke('entry:get', { dayOfYear, year }),
+  saveEntry: (id, dayOfYear, year, text) =>
+    ipcRenderer.invoke('entry:save', { id, dayOfYear, year, text }),
+  getEntriesForDay: (dayOfYear, year) =>
+    ipcRenderer.invoke('entry:getForDay', { dayOfYear, year }),
   getAllEntries: (year) =>
     ipcRenderer.invoke('entry:getAll', { year }),
-  deleteEntry: (dayOfYear, year) =>
-    ipcRenderer.invoke('entry:delete', { dayOfYear, year }),
+  deleteEntry: (id, year) =>
+    ipcRenderer.invoke('entry:delete', { id, year }),
+  getLightEcho: (year, text) =>
+    ipcRenderer.invoke('entry:lightEcho', { year, text }),
 
   // Constellations
   getConstellations: (year) =>

@@ -404,16 +404,18 @@ const OrbitalMechanics = (() => {
   // PUBLIC: Planet visual properties
   // ═══════════════════════════════════════════════════════════
   const PLANET_VISUALS = {
-    sun:     { color: 0xFFDD44, size: 8, glow: 1.0, label: 'Sun' },
-    moon:    { color: 0xE8E8D0, size: 6, glow: 0.8, label: 'Moon' },
-    mercury: { color: 0xBBBBBB, size: 2.5, glow: 0.4, label: 'Mercury' },
-    venus:   { color: 0xFFEECC, size: 3.5, glow: 0.6, label: 'Venus' },
-    mars:    { color: 0xFF6644, size: 3.0, glow: 0.5, label: 'Mars' },
-    jupiter: { color: 0xFFCC88, size: 4.5, glow: 0.7, label: 'Jupiter' },
-    saturn:  { color: 0xFFDD99, size: 4.0, glow: 0.6, label: 'Saturn' },
-    uranus:  { color: 0x88CCDD, size: 3.0, glow: 0.4, label: 'Uranus' },
-    neptune: { color: 0x4488FF, size: 3.0, glow: 0.4, label: 'Neptune' },
-    pluto:   { color: 0xCCBBAA, size: 2.0, glow: 0.3, label: 'Pluto' }
+    //   NASA/JPL rotation periods → visual rotSpeed (normalized, not 1:1 — for aesthetics)
+    //   rotPeriod: real hours per rotation | rotSpeed: scene radians/sec (scaled for viewing)
+    sun:     { color: 0xFFDD44, size: 6.0, glow: 1.0, label: 'Sun',     rotSpeed: 0.01  },  // ~609 hr
+    moon:    { color: 0xE8E8D0, size: 1.5, glow: 0.5, label: 'Moon',    rotSpeed: 0.0   },  // tidally locked
+    mercury: { color: 0xBBBBBB, size: 1.0, glow: 0.3, label: 'Mercury', rotSpeed: 0.002 },  // 1407.6 hr (slowest)
+    venus:   { color: 0xFFEECC, size: 1.8, glow: 0.5, label: 'Venus',   rotSpeed: -0.001},  // -5832.5 hr (retrograde)
+    mars:    { color: 0xFF6644, size: 1.4, glow: 0.4, label: 'Mars',    rotSpeed: 0.04  },  // 24.6 hr
+    jupiter: { color: 0xFFCC88, size: 3.5, glow: 0.6, label: 'Jupiter', rotSpeed: 0.10  },  // 9.9 hr (fastest)
+    saturn:  { color: 0xFFDD99, size: 3.0, glow: 0.5, label: 'Saturn',  rotSpeed: 0.09  },  // 10.7 hr
+    uranus:  { color: 0x88CCDD, size: 2.2, glow: 0.3, label: 'Uranus',  rotSpeed: -0.06 },  // -17.2 hr (retrograde)
+    neptune: { color: 0x4488FF, size: 2.2, glow: 0.3, label: 'Neptune', rotSpeed: 0.06  },  // 16.1 hr
+    pluto:   { color: 0xCCBBAA, size: 0.8, glow: 0.2, label: 'Pluto',   rotSpeed: -0.007}   // -153.3 hr (retrograde)
   };
 
   // ═══════════════════════════════════════════════════════════

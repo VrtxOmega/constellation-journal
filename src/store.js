@@ -17,23 +17,52 @@ class Store {
   }
 
   _initSchema() {
+    const sqlTableInfo = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='entries'").get();
+    
+    // Migration: Remove UNIQUE(day_of_year, year)
+    if (sqlTableInfo && sqlTableInfo.sql.includes('UNIQUE(day_of_year, year)')) {
+      console.log('Migrating schema: Removing UNIQUE restriction for unlimited entries...');
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS entries_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          day_of_year INTEGER NOT NULL,
+          year INTEGER NOT NULL,
+          date TEXT NOT NULL,
+          text TEXT NOT NULL,
+          emotion_valence REAL NOT NULL,
+          emotion_arousal REAL NOT NULL,
+          emotion_label TEXT NOT NULL,
+          star_name TEXT NOT NULL,
+          star_color_hex TEXT NOT NULL,
+          star_temperature_k REAL NOT NULL,
+          embedding TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO entries_new SELECT * FROM entries;
+        DROP TABLE entries;
+        ALTER TABLE entries_new RENAME TO entries;
+      `);
+    } else {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS entries (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          day_of_year INTEGER NOT NULL,
+          year INTEGER NOT NULL,
+          date TEXT NOT NULL,
+          text TEXT NOT NULL,
+          emotion_valence REAL NOT NULL,
+          emotion_arousal REAL NOT NULL,
+          emotion_label TEXT NOT NULL,
+          star_name TEXT NOT NULL,
+          star_color_hex TEXT NOT NULL,
+          star_temperature_k REAL NOT NULL,
+          embedding TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `);
+    }
+
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS entries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        day_of_year INTEGER NOT NULL,
-        year INTEGER NOT NULL,
-        date TEXT NOT NULL,
-        text TEXT NOT NULL,
-        emotion_valence REAL NOT NULL,
-        emotion_arousal REAL NOT NULL,
-        emotion_label TEXT NOT NULL,
-        star_name TEXT NOT NULL,
-        star_color_hex TEXT NOT NULL,
-        star_temperature_k REAL NOT NULL,
-        embedding TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        UNIQUE(day_of_year, year)
-      );
 
       CREATE TABLE IF NOT EXISTS constellations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,22 +103,31 @@ class Store {
     this._stmts = {
       // ── Entries (Shielded: prepared only) ──
       insertEntry: this.db.prepare(`
-        INSERT OR REPLACE INTO entries
+        INSERT INTO entries
           (day_of_year, year, date, text, emotion_valence, emotion_arousal,
            emotion_label, star_name, star_color_hex, star_temperature_k, embedding)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `),
-      getEntry: this.db.prepare(`
-        SELECT * FROM entries WHERE day_of_year = ? AND year = ?
+      updateEntry: this.db.prepare(`
+        UPDATE entries
+        SET text = ?, emotion_valence = ?, emotion_arousal = ?, emotion_label = ?,
+            star_name = ?, star_color_hex = ?, star_temperature_k = ?, embedding = ?
+        WHERE id = ?
+      `),
+      getEntryById: this.db.prepare(`
+        SELECT * FROM entries WHERE id = ?
+      `),
+      getEntriesForDay: this.db.prepare(`
+        SELECT * FROM entries WHERE day_of_year = ? AND year = ? ORDER BY created_at ASC
       `),
       getAllEntries: this.db.prepare(`
-        SELECT * FROM entries WHERE year = ? ORDER BY day_of_year ASC
+        SELECT * FROM entries WHERE year = ? ORDER BY day_of_year ASC, created_at ASC
       `),
       deleteEntry: this.db.prepare(`
-        DELETE FROM entries WHERE day_of_year = ? AND year = ?
+        DELETE FROM entries WHERE id = ?
       `),
       searchEntries: this.db.prepare(`
-        SELECT * FROM entries WHERE year = ? AND text LIKE ? ORDER BY day_of_year ASC
+        SELECT * FROM entries WHERE year = ? AND text LIKE ? ORDER BY day_of_year ASC, created_at ASC
       `),
 
       // ── Constellations (Shielded: prepared only) ──
@@ -134,7 +172,7 @@ class Store {
     }
   }
 
-  saveEntry({ dayOfYear, year, text, valence, arousal, label, starName, colorHex, temperatureK, embedding }) {
+  saveEntry({ id, dayOfYear, year, text, valence, arousal, label, starName, colorHex, temperatureK, embedding }) {
     this._backupDb(); // Shielded State: Commit safe-point
 
     const date = new Date();
@@ -144,21 +182,35 @@ class Store {
     const dateStr = date.toISOString().split('T')[0];
     const embeddingStr = embedding ? JSON.stringify(embedding) : null;
 
-    this._stmts.insertEntry.run(
-      dayOfYear, year, dateStr, text,
-      valence, arousal, label,
-      starName, colorHex, temperatureK, embeddingStr
-    );
-
-    return this.getEntry(dayOfYear, year);
+    if (id) {
+      this._stmts.updateEntry.run(
+        text, valence, arousal, label, starName, colorHex, temperatureK, embeddingStr, id
+      );
+      return this.getEntryById(id);
+    } else {
+      const result = this._stmts.insertEntry.run(
+        dayOfYear, year, dateStr, text,
+        valence, arousal, label,
+        starName, colorHex, temperatureK, embeddingStr
+      );
+      return this.getEntryById(result.lastInsertRowid);
+    }
   }
 
-  getEntry(dayOfYear, year) {
-    const entry = this._stmts.getEntry.get(dayOfYear, year) || null;
+  getEntryById(id) {
+    const entry = this._stmts.getEntryById.get(id) || null;
     if (entry && entry.embedding) {
       entry.embedding = JSON.parse(entry.embedding);
     }
     return entry;
+  }
+
+  getEntriesForDay(dayOfYear, year) {
+    const entries = this._stmts.getEntriesForDay.all(dayOfYear, year);
+    for (const entry of entries) {
+      if (entry.embedding) entry.embedding = JSON.parse(entry.embedding);
+    }
+    return entries;
   }
 
   getAllEntries(year) {
@@ -169,9 +221,9 @@ class Store {
     return entries;
   }
 
-  deleteEntry(dayOfYear, year) {
+  deleteEntry(id) {
     this._backupDb(); // Shielded State: Commit safe-point
-    this._stmts.deleteEntry.run(dayOfYear, year);
+    this._stmts.deleteEntry.run(id);
   }
 
   saveConstellations(year, constellations) {

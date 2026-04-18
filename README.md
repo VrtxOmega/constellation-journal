@@ -30,6 +30,16 @@ Constellation Journal is a local-only Electron journaling app where every entry 
 
 Your year becomes a personal galaxy. Joy burns blue-white. Crisis smolders red. Nothing leaves your machine.
 
+<div align="center">
+  <img src="assets/welcome.png" width="45%" alt="Constellation Journal - Welcome Screen" />
+  <img src="assets/sun.png" width="45%" alt="Sun Formation Event" />
+</div>
+<br>
+<div align="center">
+  <img src="assets/saturn.png" width="45%" alt="Saturn Alignment" />
+  <img src="assets/stars.png" width="45%" alt="Chi Cassiopeiae Starfield" />
+</div>
+
 ---
 
 ## FEATURES
