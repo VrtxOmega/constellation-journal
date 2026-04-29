@@ -1,0 +1,172 @@
+{
+  "version": "1.0.0",
+  "timestamp": "2026-04-29T21:04:02.539Z",
+  "target": {
+    "name": "constellation-journal",
+    "repo": "/mnt/c/Veritas_Lab/constellation-journal",
+    "commitHash": "4409115ef6e3caad3287e9af96fa12f05833d421",
+    "branch": "main"
+  },
+  "environment": {
+    "nodeVersion": "v22.14.0",
+    "os": "linux",
+    "arch": "x64",
+    "ci": false
+  },
+  "dependencies": [
+    {
+      "name": "better-sqlite3",
+      "version": "10.0.0",
+      "resolved": "/mnt/c/Veritas_Lab/constellation-journal/node_modules/better-sqlite3",
+      "integrity": "51533f1ab28f485a",
+      "suspicious": false,
+      "riskScore": 0.1
+    },
+    {
+      "name": "three",
+      "version": "0.160.0",
+      "resolved": "/mnt/c/Veritas_Lab/constellation-journal/node_modules/three",
+      "integrity": "f0392af130d7a636",
+      "suspicious": false,
+      "riskScore": 0.1
+    },
+    {
+      "name": "electron",
+      "version": "25.8.0",
+      "resolved": "/mnt/c/Veritas_Lab/constellation-journal/node_modules/electron",
+      "integrity": "d10be0c4ba23695c",
+      "suspicious": false,
+      "riskScore": 0.1
+    },
+    {
+      "name": "electron-builder",
+      "version": "24.8.1",
+      "resolved": "/mnt/c/Veritas_Lab/constellation-journal/node_modules/electron-builder",
+      "integrity": "ae9c5005af2a6b42",
+      "suspicious": false,
+      "riskScore": 0.1
+    }
+  ],
+  "gates": [
+    {
+      "gate": "GIT_INTEGRITY",
+      "status": "FAIL",
+      "evidence": "Modified files: 24",
+      "durationMs": 116
+    },
+    {
+      "gate": "LOCKFILE",
+      "status": "PASS",
+      "evidence": "package-lock.json present",
+      "durationMs": 1
+    },
+    {
+      "gate": "DETERMINISTIC_BUILD",
+      "status": "FAIL",
+      "evidence": "Build failed: ",
+      "durationMs": 14009
+    },
+    {
+      "gate": "TEST_PASS",
+      "status": "FAIL",
+      "evidence": "Tests failed: npm error Missing script: \"test\"\nnpm error\nnpm error To see a list of scripts, run:\nnpm error   npm run\nnpm error A complete log of this run can be found in: /home/veritas/.npm/_logs/2026-04-29T21_03_",
+      "durationMs": 145
+    },
+    {
+      "gate": "LINT",
+      "status": "PASS",
+      "evidence": "npx passed",
+      "durationMs": 3279
+    }
+  ],
+  "adversarial": {
+    "totalPackages": 4,
+    "suspiciousPackages": 0,
+    "probes": [
+      {
+        "package": "better-sqlite3",
+        "probe": "TYPO_SQUATTING",
+        "result": "PASS",
+        "detail": "Name heuristic clean"
+      },
+      {
+        "package": "better-sqlite3",
+        "probe": "VERSION_ANOMALY",
+        "result": "PASS",
+        "detail": "Pinned: 10.0.0"
+      },
+      {
+        "package": "better-sqlite3",
+        "probe": "METADATA_INTEGRITY",
+        "result": "PASS",
+        "detail": "Hash: 51533f1ab28f485a"
+      },
+      {
+        "package": "three",
+        "probe": "TYPO_SQUATTING",
+        "result": "PASS",
+        "detail": "Name heuristic clean"
+      },
+      {
+        "package": "three",
+        "probe": "VERSION_ANOMALY",
+        "result": "PASS",
+        "detail": "Pinned: 0.160.0"
+      },
+      {
+        "package": "three",
+        "probe": "METADATA_INTEGRITY",
+        "result": "PASS",
+        "detail": "Hash: f0392af130d7a636"
+      },
+      {
+        "package": "electron",
+        "probe": "TYPO_SQUATTING",
+        "result": "PASS",
+        "detail": "Name heuristic clean"
+      },
+      {
+        "package": "electron",
+        "probe": "VERSION_ANOMALY",
+        "result": "PASS",
+        "detail": "Pinned: 25.8.0"
+      },
+      {
+        "package": "electron",
+        "probe": "METADATA_INTEGRITY",
+        "result": "PASS",
+        "detail": "Hash: d10be0c4ba23695c"
+      },
+      {
+        "package": "electron-builder",
+        "probe": "TYPO_SQUATTING",
+        "result": "PASS",
+        "detail": "Name heuristic clean"
+      },
+      {
+        "package": "electron-builder",
+        "probe": "VERSION_ANOMALY",
+        "result": "PASS",
+        "detail": "Pinned: 24.8.1"
+      },
+      {
+        "package": "electron-builder",
+        "probe": "METADATA_INTEGRITY",
+        "result": "PASS",
+        "detail": "Hash: ae9c5005af2a6b42"
+      },
+      {
+        "package": "system",
+        "probe": "KIMI_REASONING",
+        "result": "INCONCLUSIVE",
+        "detail": "OLLAMA_CLOUD_API_KEY is not set. Skipping Kimi adversarial analysis."
+      }
+    ],
+    "overallRisk": 0
+  },
+  "seal": {
+    "chainHash": "a8d8aadb72c60a5e7ed927813b0b41dc6de36408cd880a5f51473102e48dc19a",
+    "sequence": 195
+  },
+  "signature": "de481436e92d24b2c9f63435a7454e91109229d093ba46442f203888648647c9"
+}
