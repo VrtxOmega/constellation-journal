@@ -24,7 +24,7 @@
     "url": "https://github.com/RJLopezAI/constellation-journal"
   },
   "devDependencies": {
-    "electron": "25.8.0",
+    "electron": "42.11.16",
     "electron-builder": "^24.8.1"
   },
   "dependencies": {
